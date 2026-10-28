@@ -323,9 +323,140 @@ export interface ChatConversation {
   messages: ChatMessage[];
 }
 
-export type PetType = 'kitten' | 'puppy' | 'bunny' | 'dragon' | 'penguin' | 'hamster' | 'shiba' | 'cat' | 'otter' | 'owl';
-export type PetMood = 'happy' | 'hungry' | 'sleepy' | 'excited' | 'content';
-export type PetAccessory = 'none' | 'glasses' | 'grad_cap' | 'scarf' | 'badge' | 'bow' | 'sweater' | 'backpack';
+export type PetType = 
+  | 'puppy' 
+  | 'corgi' 
+  | 'shiba' 
+  | 'floppy_puppy'
+  | 'kitten' 
+  | 'fluffy_cat' 
+  | 'calico_cat' 
+  | 'piglet' 
+  | 'crocodile' 
+  | 'rabbit' 
+  | 'bunny' 
+  | 'hamster' 
+  | 'penguin' 
+  | 'duck' 
+  | 'fox' 
+  | 'bear' 
+  | 'capybara' 
+  | 'red_panda' 
+  | 'dino' 
+  | 'dragon' 
+  | 'unicorn'
+  | 'cat' 
+  | 'otter' 
+  | 'owl';
+
+export type PetMood = 'happy' | 'hungry' | 'sleepy' | 'excited' | 'content' | 'clean' | 'playful';
+
+export type PetActionState = 'idle' | 'eating' | 'bathing' | 'playing' | 'sleeping' | 'toilet' | 'talking' | 'celebrating';
+
+export type GrowthStage = 'baby' | 'young' | 'grown';
+
+export type PetAccessory = 
+  | 'none' 
+  | 'glasses' 
+  | 'grad_cap' 
+  | 'scarf' 
+  | 'badge' 
+  | 'bow' 
+  | 'sweater' 
+  | 'backpack'
+  | 'chef_hat'
+  | 'flower_crown'
+  | 'party_crown'
+  | 'beanie'
+  | 'cool_shades'
+  | 'raincoat'
+  | 'cozy_hoodie'
+  | 'bell_collar';
+
+export type PersonalityType = 
+  | 'playful_puppy' 
+  | 'calm_kitten' 
+  | 'mischievous_croc' 
+  | 'sleepy_piglet' 
+  | 'scholarly_owl' 
+  | 'cheerful_penguin' 
+  | 'gentle_capybara'
+  | 'bold_dino';
+
+export interface CustomHeadConfig {
+  imageUrl: string;
+  zoom: number; // 0.5 to 2.5
+  offsetX: number; // -100 to 100
+  offsetY: number; // -100 to 100
+  rotation: number; // -45 to 45
+  flipHorizontal?: boolean;
+  maskShape?: 'circle' | 'oval' | 'smooth' | 'collar';
+}
+
+export interface SavedHeadImage {
+  id: string;
+  name: string;
+  imageUrl: string;
+  savedAt: string;
+  config: CustomHeadConfig;
+}
+
+export interface PetMemory {
+  id: string;
+  topic: string;
+  detail: string;
+  date: string;
+  source: 'chat' | 'interaction' | 'user';
+}
+
+export interface PetChatMessage {
+  id: string;
+  sender: 'user' | 'pet';
+  text: string;
+  timestamp: string;
+  moodReaction?: PetMood;
+}
+
+export interface DailyMission {
+  id: string;
+  title: string;
+  description: string;
+  rewardPoints: number;
+  currentCount: number;
+  targetCount: number;
+  completed: boolean;
+  claimed: boolean;
+  category: 'feed' | 'bathe' | 'play' | 'dress' | 'talk' | 'checkin';
+}
+
+export interface PetShopItem {
+  id: string;
+  name: string;
+  category: 'food' | 'toy' | 'accessory' | 'furniture' | 'theme';
+  cost: number;
+  icon: string;
+  description: string;
+  effectLabel?: string;
+  unlocked?: boolean;
+}
+
+export interface CommunityPet {
+  id: string;
+  ownerName: string;
+  ownerFaculty: string;
+  petName: string;
+  petType: PetType;
+  growthStage: GrowthStage;
+  level: number;
+  mood: PetMood;
+  accessory: PetAccessory;
+  quote: string;
+  pawsCount: number;
+  hasHighPawed?: boolean;
+  isCustomPet?: boolean;
+  customHead?: CustomHeadConfig | null;
+  roomTheme: string;
+}
 
 export interface VirtualPet {
   name: string;
@@ -335,14 +466,46 @@ export interface VirtualPet {
   hunger: number; // 0 - 100
   energy: number; // 0 - 100
   happiness: number; // 0 - 100
+  cleanliness: number; // 0 - 100
   level: number;
   exp: number;
+  petPoints: number;
   accessory: PetAccessory;
-  roomTheme?: 'dorm' | 'library' | 'garden';
+  outfit?: string;
+  roomTheme?: 'dorm' | 'garden' | 'library' | 'dreamland' | 'tropical';
   roomDecorations?: string[];
+  
+  // Custom Head Studio
+  isCustomPet?: boolean;
+  selectedBodyType?: PetType;
+  customHead?: CustomHeadConfig | null;
+
+  // Personality & Memory
+  personalityType: PersonalityType;
+  personalityTitle: string;
+  speakingStyle: 'friendly' | 'enthusiastic' | 'scholarly' | 'cute' | 'sassy';
+  favouriteActivity: string;
+  favouriteFood: string;
+  catchphrase: string;
+  memoryEnabled: boolean;
+  memories: PetMemory[];
+  chatHistory: PetChatMessage[];
+
+  // Growth & Progression
+  growthStage: GrowthStage;
+  friendshipLevel: number;
+  friendshipExp: number;
   lastFed: string;
+  lastBathed?: string;
   lastPlayed: string;
+  lastRested?: string;
+  lastToilet?: string;
+  lastDailyClaim?: string;
+  dailyPointsEarned: number;
+  maxDailyPoints: number;
   achievements: string[];
+  inventory: string[];
+  isPublicInShowcase?: boolean;
 }
 
 export interface SavingsGoal {

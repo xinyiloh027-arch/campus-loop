@@ -27,7 +27,9 @@ import {
   Info,
   ChevronRight,
   Sparkles,
-  LogOut
+  LogOut,
+  PawPrint,
+  ArrowRight
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -42,6 +44,7 @@ import {
   AccountState
 } from '../types';
 import { POPULAR_CAMPUS_LOCATIONS } from '../data/mockData';
+import { PetWorldView } from './PetWorldView';
 
 interface MeViewProps {
   profile: UserProfile;
@@ -72,9 +75,10 @@ interface MeViewProps {
   initialSubTab?: string;
   onSignOut?: () => void;
   onOpenAuthModal?: () => void;
+  onNavigateToPetWorld?: () => void;
 }
 
-type MainTab = 'rentals' | 'listings' | 'purchases' | 'sales' | 'favourites' | 'settings' | 'help';
+type MainTab = 'pet' | 'rentals' | 'listings' | 'purchases' | 'sales' | 'favourites' | 'settings' | 'help';
 type RentalFilter = 'all' | 'my-listings' | 'my-requests' | 'renting' | 'rented-out' | 'deposits' | 'guide';
 
 export const MeView: React.FC<MeViewProps> = ({
@@ -106,6 +110,7 @@ export const MeView: React.FC<MeViewProps> = ({
   initialSubTab,
   onSignOut,
   onOpenAuthModal,
+  onNavigateToPetWorld,
 }) => {
   const [activeMainTab, setActiveMainTab] = useState<MainTab>(
     (initialSubTab as MainTab) || 'rentals'
@@ -468,8 +473,78 @@ export const MeView: React.FC<MeViewProps> = ({
         </div>
       )}
 
+      {/* Pet Corner Section directly inside Profile */}
+      <div 
+        onClick={() => setActiveMainTab('pet')}
+        className={`relative overflow-hidden rounded-3xl p-5 shadow-xs transition-all cursor-pointer group ${
+          activeMainTab === 'pet'
+            ? 'bg-gradient-to-r from-pink-500 via-rose-500 to-amber-500 text-white shadow-md ring-2 ring-pink-300'
+            : 'bg-gradient-to-r from-pink-50 via-rose-50 to-amber-50 border border-pink-200/80 hover:border-pink-300 text-slate-800'
+        }`}
+      >
+        <div className="absolute right-0 top-0 -mr-6 -mt-6 w-32 h-32 bg-white/20 rounded-full blur-xl pointer-events-none group-hover:scale-110 transition-transform" />
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className={`w-13 h-13 rounded-2xl flex items-center justify-center text-3xl shadow-sm shrink-0 group-hover:scale-105 transition-transform ${
+              activeMainTab === 'pet' ? 'bg-white/20 backdrop-blur-xs text-white' : 'bg-pink-500 text-white shadow-pink-200'
+            }`}>
+              🐾
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-black tracking-wider uppercase ${activeMainTab === 'pet' ? 'text-pink-100' : 'text-pink-600'}`}>
+                  My Little Buddy
+                </span>
+                <span className={`px-2 py-0.2 rounded-full text-[10px] font-black ${
+                  activeMainTab === 'pet' ? 'bg-white text-pink-700' : 'bg-pink-100 text-pink-700'
+                }`}>
+                  PET CORNER
+                </span>
+              </div>
+              <h3 className={`text-lg font-black tracking-tight mt-0.5 ${activeMainTab === 'pet' ? 'text-white' : 'text-slate-900'}`}>
+                Pet Corner — Your Campus Companion
+              </h3>
+              <p className={`text-xs mt-0.5 ${activeMainTab === 'pet' ? 'text-pink-100' : 'text-slate-600'}`}>
+                Adopt 18+ plush cartoon animals, create custom head pets, feed, bathe, play mini-games, and collect Pet Points!
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveMainTab('pet');
+              }}
+              className={`px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
+                activeMainTab === 'pet'
+                  ? 'bg-white text-pink-700 hover:bg-pink-50'
+                  : 'bg-pink-500 hover:bg-pink-600 text-white'
+              }`}
+            >
+              <span>{activeMainTab === 'pet' ? 'Viewing Pet Corner' : 'Open Pet Corner'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Main Navigation Sub-Tabs */}
-      <div className="grid grid-cols-3 sm:grid-cols-7 gap-1.5 bg-slate-100 p-1.5 rounded-2xl text-xs font-semibold">
+      <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 bg-slate-100 p-1.5 rounded-2xl text-xs font-semibold">
+        {/* PET CORNER SUBTAB */}
+        <button
+          onClick={() => setActiveMainTab('pet')}
+          className={`py-2 px-1 rounded-xl transition-all text-center flex flex-col items-center gap-1 ${
+            activeMainTab === 'pet'
+              ? 'bg-pink-500 text-white shadow-xs font-bold'
+              : 'text-pink-600 hover:text-pink-700 hover:bg-pink-50/70'
+          }`}
+        >
+          <PawPrint className="w-4 h-4" />
+          <span className="truncate">Pet Corner</span>
+        </button>
+
         <button
           onClick={() => setActiveMainTab('rentals')}
           className={`py-2 px-1 rounded-xl transition-all text-center flex flex-col items-center gap-1 ${
@@ -554,6 +629,15 @@ export const MeView: React.FC<MeViewProps> = ({
           <span>Help</span>
         </button>
       </div>
+
+      {/* ============================================================== */}
+      {/* TAB 0: PET CORNER (MY LITTLE BUDDY INSIDE PROFILE) */}
+      {/* ============================================================== */}
+      {activeMainTab === 'pet' && (
+        <div className="space-y-6">
+          <PetWorldView currentUser={currentUser} />
+        </div>
+      )}
 
       {/* ============================================================== */}
       {/* TAB 1: RENTALS HUB (COMPLETE 6 RENTAL SECTIONS) */}

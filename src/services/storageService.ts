@@ -39,6 +39,7 @@ import {
   INITIAL_RENTAL_ITEMS,
   INITIAL_RENTAL_REQUESTS
 } from '../data/mockData';
+import { petWorldService } from './petWorldService';
 
 const LISTINGS_KEY = 'campusloop_listings_v4';
 const REQUESTS_KEY = 'campusloop_trade_requests_v4';
@@ -368,33 +369,11 @@ export const storageService = {
 
   // --- PET & GOALS HELPERS (COMPATIBILITY) ---
   getVirtualPet(): VirtualPet {
-    try {
-      const stored = localStorage.getItem(PET_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch {}
-    const defaultPet: VirtualPet = {
-      name: 'Mochi',
-      type: 'kitten',
-      petType: 'kitten',
-      mood: 'happy',
-      hunger: 80,
-      energy: 80,
-      happiness: 90,
-      level: 1,
-      exp: 10,
-      accessory: 'grad_cap',
-      lastFed: 'Recently',
-      lastPlayed: 'Recently',
-      achievements: []
-    };
-    return defaultPet;
+    return petWorldService.getPet();
   },
 
   updateVirtualPet(pet: VirtualPet): VirtualPet {
-    try {
-      localStorage.setItem(PET_KEY, JSON.stringify(pet));
-    } catch {}
-    return pet;
+    return petWorldService.savePet(pet);
   },
 
   getSavingsGoals(): SavingsGoal[] {

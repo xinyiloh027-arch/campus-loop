@@ -165,7 +165,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
-                Me
+                Profile
               </button>
             </nav>
 
@@ -256,9 +256,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </header>
 
-      {/* Mobile Fixed Bottom Navigation Bar (Exact 6 tabs: Home, Cart, Mall, Rent, Chat, Me) */}
+      {/* Mobile Fixed Bottom Navigation Bar (6 tabs: Home, Cart, Mall, Rent, Chat, Me) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg">
-        <div className="grid grid-cols-6 h-15.5 px-1 py-1">
+        <div className="grid grid-cols-6 h-15.5 px-0.5 py-1">
           {/* TAB 1: HOME */}
           <button
             type="button"
@@ -269,8 +269,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-500 hover:text-slate-800 font-medium'
             }`}
           >
-            <Home className="w-5 h-5" />
-            <span className="text-[10px] tracking-tight">Home</span>
+            <Home className="w-4.5 h-4.5" />
+            <span className="text-[9px] tracking-tight">Home</span>
           </button>
 
           {/* TAB 2: CART */}
@@ -284,14 +284,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <div className="relative">
-              <ShoppingCart className="w-5 h-5" />
+              <ShoppingCart className="w-4.5 h-4.5" />
               {cartCount > 0 && (
-                <span className="absolute -top-1 -right-2.5 px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[9px] font-bold">
+                <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full bg-blue-600 text-white text-[8px] font-bold">
                   {cartCount}
                 </span>
               )}
             </div>
-            <span className="text-[10px] tracking-tight">Cart</span>
+            <span className="text-[9px] tracking-tight">Cart</span>
           </button>
 
           {/* TAB 3: MALL */}
@@ -304,8 +304,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-500 hover:text-slate-800 font-medium'
             }`}
           >
-            <Store className="w-5 h-5" />
-            <span className="text-[10px] tracking-tight">Mall</span>
+            <Store className="w-4.5 h-4.5" />
+            <span className="text-[9px] tracking-tight">Mall</span>
           </button>
 
           {/* TAB 4: RENT */}
@@ -318,8 +318,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-500 hover:text-slate-800 font-medium'
             }`}
           >
-            <Repeat className="w-5 h-5" />
-            <span className="text-[10px] tracking-tight">Rent</span>
+            <Repeat className="w-4.5 h-4.5" />
+            <span className="text-[9px] tracking-tight">Rent</span>
           </button>
 
           {/* TAB 5: CHAT */}
@@ -333,17 +333,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <div className="relative">
-              <MessageSquare className="w-5 h-5" />
+              <MessageSquare className="w-4.5 h-4.5" />
               {unreadChatCount > 0 && (
-                <span className="absolute -top-1 -right-2.5 px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[9px] font-bold">
+                <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full bg-blue-600 text-white text-[8px] font-bold">
                   {unreadChatCount}
                 </span>
               )}
             </div>
-            <span className="text-[10px] tracking-tight">Chat</span>
+            <span className="text-[9px] tracking-tight">Chat</span>
           </button>
 
-          {/* TAB 6: ME */}
+          {/* TAB 6: PROFILE */}
           <button
             type="button"
             onClick={() => handleNavClick('me')}
@@ -353,8 +353,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-500 hover:text-slate-800 font-medium'
             }`}
           >
-            <User className="w-5 h-5" />
-            <span className="text-[10px] tracking-tight">Me</span>
+            <User className="w-4.5 h-4.5" />
+            <span className="text-[9px] tracking-tight">Profile</span>
           </button>
         </div>
       </nav>
