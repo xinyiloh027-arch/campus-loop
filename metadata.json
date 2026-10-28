@@ -1,0 +1,8 @@
+{
+  "name": "Remix CampusLoop - University Marketplace",
+  "description": "The trusted student peer-to-peer campus marketplace for buying, selling, and trading textbooks, electronics, dorm essentials, and project gear.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

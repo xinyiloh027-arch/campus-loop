@@ -1,0 +1,1207 @@
+CampusLoop 3.0 — Complete University Marketplace & Student Lifestyle Platform
+
+PROJECT OVERVIEW
+
+Build a complete, responsive, functional university marketplace and student lifestyle web application called CampusLoop.
+
+CampusLoop is designed specifically for university students. It should help students buy and sell second-hand items, borrow useful belongings, find items they need, compare prices, communicate safely, manage their spending, and participate in a friendly campus community.
+
+The application should feel like a real student startup product, not a generic AI-generated dashboard or a static landing page.
+
+I am a beginner programmer. Generate clean, understandable, well-organized code with clear component names and a simple project structure.
+
+Use React and TypeScript if supported by the project environment.
+
+IMPORTANT:
+
+* Build a working frontend prototype, not just a visual mockup.
+* Preserve and improve all existing CampusLoop functionality.
+* Do not remove existing features when adding new ones.
+* Do not add payment processing or unnecessary AI features.
+* Do not pretend that authentication, cloud storage, live pricing, or real-time multi-user functionality works unless actually implemented.
+* Use realistic sample data and clearly label simulated information.
+* Run the application and test the available browser preview if the environment supports it.
+* Fix build errors and obvious runtime errors before finishing.
+
+⸻
+
+1. VISUAL DESIGN AND USER EXPERIENCE
+
+Create a warm, modern, premium university startup aesthetic.
+
+Color palette
+
+Use:
+
+* Warm white for the main background.
+* Soft sky blue for primary actions and selected navigation.
+* Muted lavender for subtle accents.
+* Pale sage green for success states.
+* Soft cream for selected cards and highlights.
+* Dark navy or charcoal for readable text.
+* Light gray-blue for borders and secondary backgrounds.
+
+Avoid excessive gradients, neon colors, harsh shadows, excessive glassmorphism, and overly futuristic AI-dashboard styling.
+
+Design principles
+
+* Rounded cards and buttons.
+* Generous whitespace.
+* Clean typography and consistent spacing.
+* Gentle shadows and subtle borders.
+* Friendly icons and carefully chosen illustrations.
+* Smooth, short transitions.
+* Clear hover, focus, active, disabled, and loading states.
+* Natural and friendly interface copy.
+* Accessible color contrast.
+* Responsive layouts for desktop, tablets, and iPhones.
+
+The application should feel welcoming, trustworthy, youthful, calm, and practical.
+
+The main marketplace must remain easy to use even after adding more features.
+
+Navigation
+
+Create a responsive navigation system with:
+
+* Home
+* Explore
+* My Listings
+* My Requests
+* Borrow & Lend
+* Wanted Board
+* Free & Reuse
+* Chat
+* Price Intelligence
+* My Budget
+* Campus Games
+* Profile
+
+Keep Create Listing as a prominent action.
+
+On desktop, use a clean top navigation bar or a suitable compact navigation layout.
+
+On mobile, use a compact menu or bottom navigation with clear labels and icons. Do not squeeze every navigation item into one row.
+
+Organize secondary features into sensible groups if necessary.
+
+Every navigation item must lead to a functional page or a clearly labeled prototype page.
+
+⸻
+
+2. MARKETPLACE HOMEPAGE
+
+Create a functional marketplace homepage containing realistic university product listings.
+
+Product categories
+
+Include:
+
+* Textbooks
+* Electronics
+* Dorm Essentials
+* Stationery
+* Project Equipment
+* Clothing
+* Sports Equipment
+* Other
+
+Listing cards
+
+Each listing must display:
+
+* Product image.
+* Product title.
+* Price in RM.
+* Category.
+* Item condition.
+* Seller display name.
+* Campus location.
+* Seller rating when available.
+* Listing type: For Sale, For Borrowing, or Free.
+* A clear action to view details.
+
+Use varied, realistic sample products and prices.
+
+Search and filters
+
+Implement working:
+
+* Search by product title and relevant keywords.
+* Category filters.
+* Price range filters.
+* Condition filters.
+* Campus location filters.
+* Listing type filters.
+* Sorting by lowest price, highest price, newest listing, and most relevant match where applicable.
+
+Filters must update the displayed listings.
+
+Include clear filters and helpful empty states.
+
+Do not display fake search results when no items match.
+
+Favorites
+
+Allow users to save and remove favorite listings.
+
+Provide a favorites view or filter.
+
+Persist favorites locally in the prototype.
+
+Listing details
+
+When a listing is selected, open a dedicated details page or a well-designed modal.
+
+Display:
+
+* Full description.
+* All available item photos.
+* Price and condition.
+* Seller profile and reputation.
+* Campus pickup location.
+* Listing type.
+* Available quantity where applicable.
+* Price comparison information when available.
+* Contact seller and Request to Trade actions.
+* Save to Favorites action.
+* Report Listing action.
+
+Validate user actions and display useful feedback.
+
+⸻
+
+3. USER ROLES: BUYER, SELLER, OR BOTH
+
+Allow each user to choose their preferred marketplace role.
+
+Available roles:
+
+* Buyer
+* Seller
+* Both
+
+Buyer mode
+
+Allow users to:
+
+* Browse and search listings.
+* Save favorites.
+* Compare prices.
+* Send trade requests.
+* Create wanted posts.
+* Request to borrow items.
+* Send private messages.
+* Participate in group chats.
+* Leave eligible reviews.
+* Manage their personal budget.
+
+Seller mode
+
+Allow users to:
+
+* Create and edit listings.
+* Upload authentic photos of their own items.
+* Manage item availability.
+* Respond to trade requests.
+* List items for borrowing.
+* Respond to borrowing requests.
+* Offer items for free.
+* Respond to wanted posts.
+* Communicate with buyers.
+* Receive eligible reviews.
+* View their reputation information.
+
+Both mode
+
+Allow access to buyer and seller features from the same account.
+
+Users must be able to switch their selected role in Profile or Settings without creating a second account.
+
+Keep role selection separate from authentication.
+
+For the prototype, store the selected role locally. Clearly state that real account registration and authentication will be added later.
+
+Do not expose other users’ private information.
+
+⸻
+
+4. CREATE AND MANAGE LISTINGS
+
+Create a complete Create Listing form.
+
+Required fields:
+
+* Product title.
+* Description.
+* Price in RM when the item is sold.
+* Category.
+* Condition.
+* Campus pickup location.
+* Listing type.
+* At least one actual-item photo for ordinary sale and borrowing listings.
+
+Listing types:
+
+* For Sale.
+* For Borrowing.
+* Free / Giveaway.
+
+For borrowing listings, allow the owner to specify:
+
+* Borrowing fee, if any.
+* Deposit requirement, if applicable.
+* Available dates or borrowing period.
+* Expected return date or maximum borrowing duration.
+* Special conditions.
+
+For free listings, the price must be RM0.
+
+Validation
+
+* Required fields cannot be empty.
+* Reject negative prices.
+* Reject invalid monetary values.
+* Validate image types and file sizes.
+* Display clear validation messages.
+* Prevent accidental duplicate submissions.
+* Allow sellers to preview uploaded images.
+* Allow image removal and replacement before publishing.
+
+After publishing, the listing must immediately appear in the relevant marketplace views.
+
+Allow the listing owner to edit, mark unavailable, or remove their listing.
+
+Persist suitable listing data locally.
+
+Clearly handle local storage limitations and image persistence failures.
+
+Do not allow users to edit listings they do not own in the simulated data model.
+
+⸻
+
+5. AUTHENTIC PRODUCT PHOTOS
+
+Make genuine seller-uploaded photos a key feature of CampusLoop.
+
+Requirements
+
+* Allow photo selection from a phone, tablet, or computer.
+* Support camera capture where the browser supports it.
+* Support multiple images.
+* Provide image previews.
+* Allow images to be removed and reordered where practical.
+* Display a main image and additional images in listing details.
+* Encourage photos from multiple angles.
+* Encourage sellers to show actual wear, defects, and included accessories.
+* Include a field for additional condition information.
+* Clearly distinguish actual-item photos from reference images.
+* Do not automatically replace uploaded photos with online product catalog photos.
+* Do not claim that an uploaded photo proves ownership or authenticity.
+
+For sample listings, use clearly illustrative placeholder images.
+
+For user-created listings, prioritize the user’s own uploaded photos.
+
+Persistence
+
+For the prototype, use a suitable local preview and persistence approach.
+
+Do not assume large image files can safely fit inside localStorage.
+
+Use a practical approach such as IndexedDB for local image blobs where supported, or clearly explain when images need to be uploaded again.
+
+For the production version:
+
+* Store images in Firebase Storage.
+* Store image URLs and listing metadata in Cloud Firestore.
+* Apply appropriate upload validation and access controls.
+
+⸻
+
+6. TWO-WAY REVIEWS AND TRUST PROFILE
+
+Build a review system for buyers and sellers.
+
+Reviews
+
+* Buyers can review sellers after eligible completed transactions.
+* Sellers can review buyers after eligible completed transactions.
+* Support 1–5 star ratings.
+* Allow optional written feedback.
+* Display average ratings and review counts.
+* Show review history on user profiles.
+* Show seller ratings on listing cards and details.
+* Allow users to report abusive or inappropriate reviews.
+* Prevent users from reviewing themselves.
+* Prevent duplicate reviews for the same transaction.
+* Make review eligibility depend on transaction participants and transaction status.
+
+For the frontend prototype, simulate transaction records and enforce review eligibility in the application logic.
+
+Clearly label sample reviews and simulated verification.
+
+Do not describe a review as verified unless the prototype has a corresponding completed transaction record.
+
+CampusLoop Trust Profile
+
+Create a profile section showing:
+
+* Display name and profile picture.
+* Selected marketplace role.
+* Average rating.
+* Number of eligible completed transactions.
+* Number of verified reviews.
+* On-time handover statistics when sufficient data exists.
+* Account verification status when genuinely available.
+* Review history.
+* User reporting and blocking options.
+
+Explain how statistics are calculated.
+
+Do not invent account verification.
+
+Do not use an unexplained AI-generated trust score.
+
+Do not automatically penalize users just because their listings are expensive.
+
+Do not publicly shame users.
+
+⸻
+
+7. PRICE INTELLIGENCE AND PRICE ALERTS
+
+Create a dedicated Price Intelligence section.
+
+The purpose is to help students make informed purchasing decisions and recognize listings that are substantially more expensive than comparable products.
+
+External comparison platforms
+
+Design the interface to support comparisons with:
+
+* Shopee.
+* Lazada.
+* Taobao.
+* Pinduoduo.
+
+Product matching
+
+Where reliable data is available, compare:
+
+* Brand.
+* Model.
+* Product specifications.
+* Product condition.
+* Product version.
+* Bundle contents.
+* Region and currency.
+* Shipping fees.
+* Applicable discounts.
+
+Do not compare unrelated products simply because their titles look similar.
+
+Clearly distinguish new and used products.
+
+Price comparison interface
+
+Display:
+
+* CampusLoop listing price.
+* Comparable reference prices.
+* Platform names.
+* Source links when available.
+* Last-updated timestamps.
+* Price range where appropriate.
+* Historical price chart when historical data exists.
+* Price increases and decreases when supported by actual observations.
+* Comparison limitations.
+
+Use RM as the main display currency.
+
+When conversion is required, show the exchange-rate source and timestamp when available.
+
+Price warning
+
+Allow the user to configure a reasonable warning threshold, such as a listing price that is 20% above a comparable reference price.
+
+Example:
+
+“Price Alert: This item is approximately 35% above the available comparable market price.
+
+CampusLoop listing: RM160
+Comparable reference range: RM100–RM120
+
+Prices may vary due to condition, shipping, accessories, warranty, and availability.”
+
+Display:
+
+* Continue Anyway.
+* Cancel Request.
+* View Comparison Details.
+
+Let the buyer decide what to do.
+
+Do not automatically prevent a buyer from purchasing an item.
+
+Allow sellers to explain differences in condition, included accessories, rarity, or bundles.
+
+Do not label a seller as dishonest merely because the price is high.
+
+Real data requirements
+
+Do not invent live prices, historical prices, price movements, or external source links.
+
+Use official APIs, authorized data providers, or other permitted sources where available.
+
+Respect platform terms, access restrictions, and rate limits.
+
+For the frontend prototype, use clearly labeled sample prices and simulated charts.
+
+If real data is unavailable, display:
+
+“Live price data is not connected. Showing demonstration data.”
+
+Never describe demonstration data as real-time information.
+
+Separate price comparison UI from the future external pricing service.
+
+⸻
+
+8. CAMPUS BORROW & LEND
+
+Build a dedicated borrowing and lending feature.
+
+Students should be able to borrow useful items instead of buying items they only need temporarily.
+
+Example items
+
+* Scientific calculators.
+* Project equipment.
+* Tripods.
+* Tools.
+* Sports equipment.
+* Umbrellas.
+* Books.
+* Dorm essentials.
+
+Lender functionality
+
+Allow users to:
+
+* Create a borrowing listing.
+* Describe item condition.
+* Specify availability.
+* Set a borrowing fee or offer the item for free.
+* Set a refundable deposit if applicable.
+* Specify return conditions.
+* Review borrowing requests.
+* Accept or reject requests.
+* Confirm handover.
+* Confirm item return.
+
+Borrower functionality
+
+Allow users to:
+
+* Search available borrowing listings.
+* Filter by category and availability.
+* View fees and conditions.
+* Select a borrowing period.
+* Submit a borrowing request.
+* View request status.
+* Confirm item collection.
+* Confirm return.
+
+Borrowing statuses
+
+Use:
+
+* Pending.
+* Accepted.
+* Rejected.
+* Ready for Collection.
+* Borrowed.
+* Return Pending.
+* Returned.
+* Cancelled.
+
+Use clear status labels and appropriate buttons.
+
+Prevent conflicting reservations for the same item and overlapping dates in the prototype.
+
+Clearly explain that any deposit and fee tracking is informational only. Do not implement actual payment processing.
+
+Include a simple borrowing history for both parties.
+
+For production, implement server-side validation and transaction-safe availability checks.
+
+⸻
+
+9. SEMESTER-END CLEARANCE
+
+Create a special marketplace area for students moving into a new semester or leaving campus.
+
+Sections
+
+* Graduation Clearance.
+* Moving Out.
+* New Student Essentials.
+* Next Semester Textbooks.
+* Dorm Essentials Bundles.
+* Project Equipment Clearance.
+
+Allow sellers to:
+
+* Tag listings for a relevant occasion.
+* Create bundles of related products.
+* Specify a bundle price.
+* Sell individual items or the complete bundle where practical.
+* Set an optional listing expiry date.
+
+Allow buyers to browse these sections and contact sellers.
+
+Display relevant listings based on their tags and actual availability.
+
+Do not automatically delete a listing simply because a semester date has passed.
+
+Make this section useful for both new students and graduating students.
+
+⸻
+
+10. TEXTBOOK EDITION CHECKER
+
+Build a dedicated textbook identification and edition-checking feature.
+
+Textbook details
+
+Where applicable, support:
+
+* Book title.
+* Author.
+* ISBN-10 or ISBN-13.
+* Edition number.
+* Publication year.
+* Publisher.
+* Course code.
+* Item condition.
+
+Allow sellers to enter these details when creating textbook listings.
+
+Allow buyers to search by:
+
+* ISBN.
+* Book title.
+* Author.
+* Course code.
+* Edition.
+
+Edition comparison
+
+When a buyer views a textbook, show available matching listings and indicate whether their ISBN and edition match.
+
+Display warnings when:
+
+* The edition is different.
+* The ISBN is missing.
+* The edition cannot be verified.
+* Product details are inconsistent.
+
+Do not assume two textbooks with similar titles are identical.
+
+Do not claim to verify an ISBN against an external catalog unless a real catalog integration is connected.
+
+For the prototype, use sample textbook records and local matching logic.
+
+Provide a clear “Edition not verified” state when information is insufficient.
+
+⸻
+
+11. WANTED BOARD
+
+Create a community board where buyers can publish what they need, even if no matching listing currently exists.
+
+Create a wanted post
+
+Fields:
+
+* Requested item title.
+* Description.
+* Category.
+* Maximum budget in RM.
+* Preferred condition.
+* Campus location.
+* Optional deadline.
+* Optional reference image.
+* Preferred purchase, borrowing, or free option.
+
+Buyer functionality
+
+Allow users to:
+
+* Create wanted posts.
+* Edit or close their own posts.
+* View responses.
+* Mark a request as fulfilled.
+* Delete their own posts.
+
+Seller functionality
+
+Allow users to:
+
+* Browse wanted posts.
+* Filter by category and budget.
+* Respond if they have a matching item.
+* Share an existing listing.
+* Start a conversation with the requester.
+
+Do not automatically create a sale or borrowing agreement from a response.
+
+Require the buyer to review the offer and decide whether to proceed.
+
+Provide empty states and clear request statuses.
+
+Persist prototype data locally.
+
+⸻
+
+12. FREE & REUSE COMMUNITY
+
+Create a dedicated section for free item giveaways and campus reuse.
+
+Features
+
+* Publish an item for free.
+* Display item photos and condition.
+* Show campus pickup information.
+* Allow users to request an item.
+* Support first-come-first-served or owner-selected recipients.
+* Allow the owner to accept or reject requests.
+* Mark an item as reserved or claimed.
+* Confirm successful collection.
+* Show relevant environmental reuse messaging without inventing environmental impact statistics.
+
+Suggested statuses:
+
+* Available.
+* Pending Collection.
+* Reserved.
+* Claimed.
+* Cancelled.
+
+Prevent multiple users from independently claiming the same available item in the simulated data model.
+
+Allow users to report inappropriate listings.
+
+Make the section feel positive, community-oriented, and easy to use.
+
+⸻
+
+13. DIRECT MESSAGES AND GROUP CHAT
+
+Add a dedicated Chat section.
+
+One-to-one messaging
+
+Support:
+
+* Starting a conversation from a product listing.
+* Starting a conversation from a wanted post.
+* Conversation list.
+* Participant display names and profile images.
+* Message timestamps.
+* Text messages.
+* Shared listing previews.
+* Message history.
+* Empty states.
+* Unread indicators where feasible.
+* Report and block actions.
+
+Group chat
+
+Allow users to:
+
+* Create a group.
+* Enter a group name.
+* Add participants from the available prototype users.
+* View group members.
+* Send and view messages.
+* Share marketplace listings.
+* View conversation history.
+
+Prototype requirements
+
+Implement local simulated conversations and messages.
+
+Persist suitable message records locally.
+
+Make it clear that prototype messages are not delivered to other real users.
+
+Do not fake real-time multi-user delivery.
+
+For production, use Firebase Authentication, Cloud Firestore, real-time listeners, security rules, and appropriate access controls.
+
+Users should only be able to access conversations they are authorized to view.
+
+Do not expose private messages publicly.
+
+⸻
+
+14. PERSONAL FINANCE AND BUDGET TRACKER
+
+Create a dedicated My Budget section for student spending management.
+
+Transactions
+
+Allow users to:
+
+* Add income records.
+* Add expense records.
+* Edit records.
+* Delete records.
+* Record date, amount in RM, category, and optional notes.
+* Filter by date and category.
+
+Suggested categories:
+
+* Food.
+* Transportation.
+* Education.
+* Accommodation.
+* Shopping.
+* Entertainment.
+* Healthcare.
+* Other.
+
+Budget dashboard
+
+Display:
+
+* Total income.
+* Total expenses.
+* Remaining budget.
+* Weekly spending.
+* Monthly spending.
+* Spending by category.
+* Recent transactions.
+* Simple charts.
+
+Use accurate calculations based on stored transaction records.
+
+Avoid confusing income, budget allocations, and expenses.
+
+Budget management
+
+Allow users to:
+
+* Set weekly or monthly budgets.
+* Create optional category-specific budgets.
+* Edit budget limits.
+* Reset a budget period without accidentally deleting transaction history.
+
+Overspending alerts
+
+Provide:
+
+* An approaching-budget warning, such as at 80%.
+* An exceeded-budget warning at 100%.
+* A clear visual progress bar.
+* Friendly suggestions for reviewing discretionary spending.
+* A breakdown of categories contributing to spending.
+
+Do not shame users for overspending.
+
+Do not imply that manually entered data represents verified bank balances.
+
+Marketplace integration
+
+Allow users to manually add a completed marketplace purchase to expenses.
+
+Where appropriate, offer an “Add to My Budget” action after a completed transaction.
+
+Prevent accidental duplicate entries using a transaction reference or duplicate-checking mechanism.
+
+Do not count pending requests as completed expenses.
+
+Do not automatically claim that a purchase has been paid.
+
+Privacy
+
+Treat budget records as private user data.
+
+In the prototype, separate demo users’ records where practical and explain the limits of local storage.
+
+For production, use authenticated user-specific database access rules.
+
+Do not integrate bank accounts or claim automatic financial synchronization.
+
+⸻
+
+15. CAMPUS GAMES: VIRTUAL PET
+
+Create a separate Campus Games section.
+
+Start with a cozy virtual pet experience.
+
+Gameplay
+
+Allow users to:
+
+* Adopt a virtual pet.
+* Choose from a small selection of pets.
+* Give the pet a name.
+* Feed the pet.
+* Play with the pet.
+* View mood, energy, and happiness.
+* Unlock simple cosmetic accessories.
+* Decorate a small virtual room.
+* Earn optional achievements.
+* Save pet progress.
+
+Use gentle animations and friendly illustrations.
+
+The game should be relaxing and suitable for short sessions.
+
+Progression
+
+Use simple, understandable game mechanics.
+
+Do not make the game dependent on buying real items.
+
+Do not use gambling, paid random rewards, manipulative purchase mechanics, or punitive systems designed to encourage excessive screen time.
+
+Avoid penalizing students for taking breaks.
+
+Persist pet progress locally for the prototype.
+
+Provide a clear reset option with confirmation.
+
+⸻
+
+16. POCKET GARDEN: SAVING GOAL MINI-GAME
+
+Add a small savings-themed activity that complements My Budget.
+
+Features
+
+* Allow users to create a savings goal.
+* Enter a goal name and target amount in RM.
+* Enter manually recorded contributions.
+* Show progress toward the target.
+* Unlock virtual plants, pots, and decorations at milestones.
+* Display friendly encouragement.
+* Allow users to edit or remove their own goals.
+* Provide a reset or delete confirmation.
+
+Example:
+
+Goal: Next Semester Textbooks
+Target: RM200
+Saved: RM80
+Progress: 40%
+
+The progress must be calculated from user-entered contributions or explicitly confirmed savings records.
+
+Do not pretend to know the user’s bank balance.
+
+Do not automatically treat unspent budget as money saved.
+
+Do not punish users for missing a goal.
+
+Keep this feature optional and visually consistent with the Campus Games section.
+
+⸻
+
+17. FINANCE-AWARE MARKETPLACE EXPERIENCE
+
+Connect marketplace features to the user’s budget in a useful, non-intrusive way.
+
+For example:
+
+* Let buyers see a manually configured optional shopping budget.
+* Show a gentle budget notice when a planned purchase would exceed the user’s chosen limit.
+* Allow buyers to open My Budget from the purchase details.
+* Let users save a product for later instead of purchasing immediately.
+* Provide a transparent price comparison when data is available.
+
+Never automatically block a user from contacting a seller because their budget is low.
+
+Never treat a pending trade request as a completed purchase.
+
+Do not reveal a user’s budget or financial records to sellers or other users.
+
+All financial suggestions should be optional and based only on available information.
+
+⸻
+
+18. REPORTING, SAFETY, AND MODERATION INTERFACE
+
+Provide basic reporting controls for:
+
+* Listings.
+* Reviews.
+* User profiles.
+* Private messages.
+* Group chats.
+
+Allow users to choose a report reason and optionally provide details.
+
+Display a confirmation after a report is submitted.
+
+For the prototype, store reports locally and label them as simulated.
+
+Do not claim that reports are reviewed by a real moderation team.
+
+Provide block and unblock controls in the prototype where practical.
+
+Do not expose reporters’ identities publicly.
+
+Encourage campus handovers in appropriate public places.
+
+Avoid displaying sensitive personal information such as dorm room numbers or private phone numbers by default.
+
+⸻
+
+19. USER PROFILE AND SETTINGS
+
+Create a functional Profile page.
+
+Include:
+
+* Display name.
+* Profile image.
+* Short biography.
+* Selected role.
+* Preferred campus location.
+* Favorite listings.
+* My Listings.
+* My Requests.
+* Borrowing and lending history.
+* Reviews.
+* Trust Profile.
+* Budget preferences.
+* Notification preferences.
+* Privacy and safety settings.
+
+For the prototype, use sample user profiles and local settings.
+
+Clearly distinguish simulated profile information from real authenticated account information.
+
+Do not implement fake authentication that appears secure.
+
+⸻
+
+20. NOTIFICATIONS
+
+Create a notification center for important application events.
+
+Examples:
+
+* A response to a trade request.
+* A borrowing request being accepted or rejected.
+* A new response to a wanted post.
+* A change in listing availability.
+* A price warning for a saved listing.
+* A budget threshold being reached.
+* A reminder about a manually configured borrowing return date.
+
+Allow users to mark notifications as read.
+
+Allow basic notification preferences.
+
+For the prototype, notifications may be generated from local simulated events.
+
+Do not claim that users receive real push notifications or background price alerts.
+
+Clearly label any unsupported notification functionality.
+
+⸻
+
+21. DATA MODELS AND CODE STRUCTURE
+
+Use React and TypeScript where supported.
+
+Keep the implementation beginner-friendly.
+
+Suggested project structure:
+
+src/
+components/
+pages/
+features/
+marketplace/
+reviews/
+pricing/
+borrowing/
+clearance/
+textbooks/
+wanted/
+giveaways/
+chat/
+budget/
+games/
+notifications/
+services/
+types/
+utils/
+
+Use reusable components and well-defined TypeScript interfaces.
+
+Suggested data entities:
+
+* UserProfile
+* Listing
+* ListingImage
+* TradeRequest
+* Review
+* BorrowingRequest
+* BorrowingRecord
+* WantedPost
+* WantedResponse
+* Conversation
+* ChatMessage
+* Budget
+* BudgetTransaction
+* SavingsGoal
+* VirtualPet
+* Notification
+* Report
+
+Use consistent identifiers and timestamps.
+
+Validate input data before saving.
+
+Keep feature-specific business logic out of large UI components wherever practical.
+
+Avoid unnecessary dependencies.
+
+Do not put all application code into one enormous component.
+
+⸻
+
+22. LOCAL STORAGE AND FUTURE FIREBASE ARCHITECTURE
+
+The initial deliverable is a frontend prototype.
+
+Separate prototype storage from the future cloud implementation.
+
+Prototype
+
+Use:
+
+* Local browser storage for suitable small records.
+* IndexedDB or another appropriate browser-based method for larger local image data where practical.
+* Seeded sample data for listings, users, reviews, requests, and messages.
+* Clear loading, empty, success, and error states.
+
+Data created by the user should remain available after refreshing the page when the selected storage method supports persistence.
+
+Handle malformed stored data and storage failures gracefully.
+
+Do not overwrite valid user-created records every time the application starts.
+
+Provide a way to reset demo data with a confirmation.
+
+Clearly explain that browser storage is local to the browser and is not a shared cloud database.
+
+Future production architecture
+
+Prepare for:
+
+* Firebase Authentication for account registration and login.
+* Cloud Firestore for listings, profiles, reviews, trade requests, borrowing records, wanted posts, conversations, messages, budgets, and notifications.
+* Firebase Storage for product images and profile pictures.
+* Firestore Security Rules for ownership and access control.
+* Server-side validation for sensitive operations.
+* Real-time listeners for chat and request updates.
+* Authorized external data providers for price comparison.
+
+Never expose private API keys or service account credentials in client-side code.
+
+Do not claim Firebase is connected unless it has actually been configured and tested.
+
+⸻
+
+23. RESPONSIVE DESIGN AND ACCESSIBILITY
+
+Test the application at:
+
+* Desktop laptop widths.
+* Tablet widths.
+* iPhone-sized mobile widths.
+
+Ensure:
+
+* Navigation remains usable.
+* Product cards adapt to screen size.
+* Forms fit on small screens.
+* Images preserve their aspect ratio.
+* Modals do not overflow the screen.
+* Chat messages remain readable.
+* Tables and charts have mobile-friendly alternatives.
+* Buttons have sufficiently large touch targets.
+* Keyboard focus is visible.
+* Form errors are understandable.
+* Empty states guide users toward the next action.
+
+Do not sacrifice usability just to fit every feature onto one screen.
+
+⸻
+
+24. REQUIRED TESTING
+
+Run the application and inspect the browser preview if supported.
+
+Fix compilation errors, broken routes, and obvious runtime errors.
+
+Test these flows:
+
+1. Browse, search, filter, and sort listings.
+2. Open and close listing details.
+3. Create a listing and verify it appears in the marketplace.
+4. Upload and preview actual-item photos.
+5. Refresh and verify suitable data persists.
+6. Switch between Buyer, Seller, and Both modes.
+7. Create a trade request and inspect its status.
+8. Test review eligibility and duplicate-review prevention.
+9. Display a labeled sample price warning.
+10. Create a borrowing listing and submit a borrowing request.
+11. Check borrowing status transitions and date conflicts.
+12. Create and respond to a wanted post.
+13. Publish a free giveaway and reserve the item.
+14. Compare textbook editions using sample records.
+15. Create a private conversation and send a message.
+16. Create a group chat and send a message.
+17. Add income and expense records and verify budget calculations.
+18. Trigger an overspending warning.
+19. Create a savings goal and verify progress calculations.
+20. Feed and play with a virtual pet.
+21. View and mark notifications as read.
+22. Test invalid form submissions.
+23. Test empty states and unavailable-data states.
+24. Test responsive navigation and mobile layouts.
+
+If any feature cannot be fully implemented in the current environment, clearly identify the limitation instead of pretending it works.
+
+Do not claim that every test passed unless it was actually performed.
+
+⸻
+
+25. FINAL DELIVERABLE
+
+Deliver a complete, runnable frontend prototype.
+
+At the end, provide:
+
+1. A concise summary of implemented features.
+2. Instructions for running the application.
+3. A beginner-friendly explanation of the project structure.
+4. A list of prototype features that use local or simulated data.
+5. A list of features that require Firebase or external integrations.
+6. Any known bugs or incomplete features.
+7. Recommended next steps for Firebase Authentication, Cloud Firestore, Firebase Storage, real-time chat, and authorized marketplace price data.
+
+Prioritize correctness, clear code, reliable interactions, user privacy, responsive design, and honest feature labeling.
+
+Do not replace working features with static mockups.
+
+Build and verify the core functionality before polishing secondary features.
