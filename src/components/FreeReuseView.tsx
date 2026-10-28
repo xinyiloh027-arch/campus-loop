@@ -58,7 +58,7 @@ const SAMPLE_FREE_ITEMS: Listing[] = [
     description: 'Surplus stationery from club welcome pack. 3 lined A5 notebooks and a white mesh pen organizer. Completely unused.',
     price: 0,
     category: 'Stationery',
-    condition: 'New',
+    condition: 'Brand New',
     sellerName: 'Kavita Devi',
     sellerContact: 'kavita.d@campus.edu.my',
     sellerAvatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&q=80',
@@ -99,10 +99,11 @@ export const FreeReuseView: React.FC<FreeReuseViewProps> = ({
   const [claimedIds, setClaimedIds] = useState<string[]>([]);
 
   const filteredItems = items.filter(item => {
+    const loc = item.campusLocation || item.location || '';
     return (
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.campusLocation.toLowerCase().includes(searchQuery.toLowerCase())
+      loc.toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
 

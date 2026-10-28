@@ -316,6 +316,48 @@ export const storageService = {
     return this.sendChatMessage(conversationId, text, sharedListing);
   },
 
+  createGroupChat(groupName: string, members: string[]): ChatConversation {
+    const convos = this.getChatConversations();
+    const newGroup: ChatConversation = {
+      id: `chat-group-${Date.now()}`,
+      type: 'group',
+      name: groupName,
+      avatar: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=120&q=80',
+      participants: [
+        { id: 'user-current', name: 'Alex Tan', role: 'Student' },
+        ...members.map((m, idx) => ({ id: `member-${Date.now()}-${idx}`, name: m, role: 'Student' })),
+      ],
+      lastMessage: 'Group conversation created',
+      lastMessageTime: 'Just now',
+      unreadCount: 0,
+      isBlocked: false,
+      messages: [],
+    };
+    const updated = [newGroup, ...convos];
+    try {
+      localStorage.setItem(CHATS_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to create group chat:', e);
+    }
+    return newGroup;
+  },
+
+  blockChat(conversationId: string): ChatConversation[] {
+    const convos = this.getChatConversations();
+    const updated = convos.map(c => {
+      if (c.id === conversationId) {
+        return { ...c, isBlocked: !c.isBlocked };
+      }
+      return c;
+    });
+    try {
+      localStorage.setItem(CHATS_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to block/unblock chat:', e);
+    }
+    return updated;
+  },
+
   // --- VIRTUAL PET ---
   getVirtualPet(): VirtualPet {
     try {

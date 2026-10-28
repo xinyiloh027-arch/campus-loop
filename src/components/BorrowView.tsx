@@ -179,10 +179,11 @@ export const BorrowView: React.FC<BorrowViewProps> = ({
   }, [listings]);
 
   const filteredItems = allBorrowItems.filter(item => {
+    const loc = item.campusLocation || item.location || '';
     return (
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.campusLocation.toLowerCase().includes(searchQuery.toLowerCase())
+      loc.toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
 
