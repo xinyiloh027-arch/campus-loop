@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CampusLoop - UTM University Marketplace</title>
+    <script>
+      // Single Page Application redirect for GitHub Pages
+      // Redirects any 404 path back to the index page with the path preserved in query
+      const pathSegments = window.location.pathname.split('/');
+      // If deployed in a subfolder /repo-name/, preserve base
+      window.location.replace(window.location.origin + '/' + (pathSegments[1] ? pathSegments[1] + '/' : ''));
+    </script>
+  </head>
+  <body>
+    Redirecting to CampusLoop...
+  </body>
+</html>
