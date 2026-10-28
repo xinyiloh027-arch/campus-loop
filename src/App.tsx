@@ -1,84 +1,90 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Category, 
   Listing, 
   TradeRequest, 
   RequestStatus, 
   UserProfile, 
-  UserRole, 
   Review, 
   ChatConversation, 
-  VirtualPet, 
-  BudgetTransaction, 
-  BudgetSettings,
+  CartItem,
+  RentalItem,
+  RentalRequest,
+  RentalStatus,
   CampusNotification,
-  BorrowRequest,
-  BorrowStatus
+  UTMUser,
+  AccountState
 } from './types';
 import { storageService } from './services/storageService';
+import { authService } from './services/authService';
 import { Navbar, NavTab } from './components/Navbar';
-import { HeroBanner } from './components/HeroBanner';
-import { FilterBar } from './components/FilterBar';
-import { ListingCard } from './components/ListingCard';
+import { HomeView } from './components/HomeView';
+import { MallView } from './components/MallView';
+import { CartView } from './components/CartView';
+import { RentView } from './components/RentView';
+import { ChatView } from './components/ChatView';
+import { MeView } from './components/MeView';
 import { ListingDetailModal } from './components/ListingDetailModal';
 import { CreateListingModal } from './components/CreateListingModal';
 import { TradeRequestModal } from './components/TradeRequestModal';
-import { MyRequestsView } from './components/MyRequestsView';
-import { MyListingsView } from './components/MyListingsView';
-import { ProfileView } from './components/ProfileView';
-import { PriceIntelligenceView } from './components/PriceIntelligenceView';
-import { ChatView } from './components/ChatView';
-import { BudgetView } from './components/BudgetView';
-import { CampusPetView } from './components/CampusPetView';
-import { BorrowView } from './components/BorrowView';
-import { WantedBoardView } from './components/WantedBoardView';
-import { FreeReuseView } from './components/FreeReuseView';
-import { TextbookEditionCheckerModal } from './components/TextbookEditionCheckerModal';
+import { RentalDetailModal } from './components/RentalDetailModal';
+import { CreateRentalModal } from './components/CreateRentalModal';
+import { HandoverModal, InspectionModal, DisputeModal } from './components/RentalActionModals';
+import { UtmAuthModal, AuthModalMode } from './components/UtmAuthModal';
 import { NotificationDrawer } from './components/NotificationDrawer';
-import { ReviewModal } from './components/ReviewModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
-import { PackageSearch, Sparkles, BookOpen } from 'lucide-react';
 
 export default function App() {
-  // Navigation State
+  // Navigation State (6 Tabs: Home, Cart, Mall, Rent, Chat, Me)
   const [activeTab, setActiveTab] = useState<NavTab>('home');
+  const [mallCategory, setMallCategory] = useState<Category>('All');
 
-  // Core Data State (Loaded from localStorage persistent prototype service)
+  // UTM Authentication & Account State
+  const [currentUser, setCurrentUser] = useState<UTMUser | null>(authService.getCurrentUser());
+  const [accountState, setAccountState] = useState<AccountState>(authService.getAccountState());
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>('login');
+  const [intendedActionLabel, setIntendedActionLabel] = useState<string | undefined>(undefined);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+
+  // Core Marketplace Data State
   const [listings, setListings] = useState<Listing[]>([]);
   const [tradeRequests, setTradeRequests] = useState<TradeRequest[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile>(storageService.getUserProfile());
   const [reviews, setReviews] = useState<Review[]>([]);
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [virtualPet, setVirtualPet] = useState<VirtualPet>(storageService.getVirtualPet());
-  const [budgetTransactions, setBudgetTransactions] = useState<BudgetTransaction[]>([]);
-  const [budgetSettings, setBudgetSettings] = useState<BudgetSettings>(storageService.getBudgetSettings());
-  const [notifications, setNotifications] = useState<CampusNotification[]>(storageService.getNotifications());
+  const [notifications, setNotifications] = useState<CampusNotification[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Search & Filter State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<Category>('All');
-  const [sortOrder, setSortOrder] = useState<'newest' | 'price-asc' | 'price-desc'>('newest');
-  const [maxPrice, setMaxPrice] = useState<number | null>(null);
+  // Peer Rental State
+  const [rentalItems, setRentalItems] = useState<RentalItem[]>([]);
+  const [rentalRequests, setRentalRequests] = useState<RentalRequest[]>([]);
+  const [selectedRentalItem, setSelectedRentalItem] = useState<RentalItem | null>(null);
+  const [isCreateRentalModalOpen, setIsCreateRentalModalOpen] = useState(false);
+  const [editingRentalItem, setEditingRentalItem] = useState<RentalItem | null>(null);
 
-  // Modals
+  // Rental Workflow Action Modals
+  const [handoverModalRequest, setHandoverModalRequest] = useState<RentalRequest | null>(null);
+  const [inspectionModalRequest, setInspectionModalRequest] = useState<RentalRequest | null>(null);
+  const [disputeModalRequest, setDisputeModalRequest] = useState<RentalRequest | null>(null);
+
+  // Sales / Marketplace Modals
   const [detailModalListing, setDetailModalListing] = useState<Listing | null>(null);
   const [tradeModalListing, setTradeModalListing] = useState<Listing | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [reviewModalRequest, setReviewModalRequest] = useState<TradeRequest | null>(null);
-  const [reviewModalRole, setReviewModalRole] = useState<'Buyer' | 'Seller'>('Buyer');
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
-  const [isEditionCheckerOpen, setIsEditionCheckerOpen] = useState(false);
 
   // Toasts
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = (type: 'success' | 'error' | 'info', title: string, message?: string) => {
-    const id = `toast-${Date.now()}`;
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     setToasts((prev) => [...prev, { id, type, title, message }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+    }, 4200);
   };
 
   const removeToast = (id: string) => {
@@ -90,13 +96,15 @@ export default function App() {
     try {
       setListings(storageService.getListings());
       setTradeRequests(storageService.getTradeRequests());
+      setCart(storageService.getCart());
       setUserProfile(storageService.getUserProfile());
       setReviews(storageService.getReviews());
       setConversations(storageService.getChatConversations());
-      setVirtualPet(storageService.getVirtualPet());
-      setBudgetTransactions(storageService.getBudgetTransactions());
-      setBudgetSettings(storageService.getBudgetSettings());
+      setRentalItems(storageService.getRentalItems());
+      setRentalRequests(storageService.getRentalRequests());
       setNotifications(storageService.getNotifications());
+      setCurrentUser(authService.getCurrentUser());
+      setAccountState(authService.getAccountState());
     } catch (e) {
       console.error('Error loading initial data:', e);
     } finally {
@@ -106,452 +114,746 @@ export default function App() {
 
   useEffect(() => {
     loadAllData();
+
+    // Subscribe to auth state updates
+    const unsubscribe = authService.onAuthChange((user) => {
+      setCurrentUser(user);
+      setAccountState(authService.getAccountState());
+      if (user) {
+        setUserProfile((prev) => ({
+          ...prev,
+          name: user.name,
+          email: user.email,
+          studentId: user.studentId || prev.studentId,
+          faculty: user.faculty || prev.faculty,
+          accountState: user.accountState,
+          emailVerified: user.emailVerified,
+          isSuspended: user.isSuspended,
+        }));
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  // Filter and sort listings
-  const filteredListings = useMemo(() => {
-    return listings
-      .filter((listing) => {
-        const matchesSearch =
-          listing.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          listing.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          ((listing.campusLocation || listing.location || '').toLowerCase().includes(searchQuery.toLowerCase())) ||
-          (listing.courseCode && listing.courseCode.toLowerCase().includes(searchQuery.toLowerCase()));
+  // ==========================================
+  // TRANSACTION GATEKEEPER
+  // ==========================================
+  const ensureVerifiedUtmUser = (actionLabel: string, callback?: () => void): boolean => {
+    const check = authService.canTransact(currentUser);
+    if (!check.allowed) {
+      setIntendedActionLabel(actionLabel);
+      setPendingAction(() => callback || null);
+      setAuthModalMode(currentUser && !currentUser.emailVerified ? 'verify' : 'login');
+      setIsAuthModalOpen(true);
+      addToast(
+        'info',
+        'UTM Authentication Required',
+        check.reason || `Please sign in with your verified UTM email to ${actionLabel}.`
+      );
+      return false;
+    }
+    return true;
+  };
 
-        const matchesCategory =
-          selectedCategory === 'All' || listing.category === selectedCategory;
+  // Handlers for Auth Success and Sign Out
+  const handleAuthSuccess = (user: UTMUser) => {
+    setCurrentUser(user);
+    setAccountState(user.accountState);
+    loadAllData();
+    addToast('success', 'UTM Verified', `Signed in as ${user.name} (${user.email})`);
+    
+    // Execute preserved intended action
+    if (pendingAction) {
+      const act = pendingAction;
+      setPendingAction(null);
+      setTimeout(() => act(), 150);
+    }
+  };
 
-        const matchesPrice = maxPrice === null || listing.price <= maxPrice;
+  const handleSignOut = async () => {
+    await authService.logout();
+    setCurrentUser(null);
+    setAccountState('Signed Out');
+    
+    // Requirement 6: Clear protected user data from interface
+    setCart([]);
+    setTradeRequests([]);
+    setActiveChatId(undefined);
+    addToast('info', 'Signed Out', 'You have signed out. Protected personal data cleared from interface.');
+  };
 
-        return matchesSearch && matchesCategory && matchesPrice;
-      })
-      .sort((a, b) => {
-        if (sortOrder === 'price-asc') return a.price - b.price;
-        if (sortOrder === 'price-desc') return b.price - a.price;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  // Open Auth Modal helper
+  const handleOpenAuthModal = (mode: AuthModalMode = 'login', actionLabel?: string, callback?: () => void) => {
+    setAuthModalMode(mode);
+    setIntendedActionLabel(actionLabel);
+    setPendingAction(() => callback || null);
+    setIsAuthModalOpen(true);
+  };
+
+  // --- CART HANDLERS ---
+  const handleAddToCart = (listing: Listing) => {
+    if (!ensureVerifiedUtmUser('add items to cart', () => handleAddToCart(listing))) return;
+
+    const updated = storageService.addToCart(listing, 1);
+    setCart(updated);
+    addToast('success', 'Added to Cart', `"${listing.title}" is in your shopping cart.`);
+  };
+
+  const handleToggleSelectCartItem = (listingId: string) => {
+    const updated = storageService.toggleSelectCartItem(listingId);
+    setCart(updated);
+  };
+
+  const handleSelectAllCart = (selected: boolean) => {
+    const updated = storageService.selectAllCartItems(selected);
+    setCart(updated);
+  };
+
+  const handleUpdateCartQuantity = (listingId: string, quantity: number) => {
+    const updated = storageService.updateCartQuantity(listingId, quantity);
+    setCart(updated);
+  };
+
+  const handleRemoveFromCart = (listingId: string) => {
+    const updated = storageService.removeFromCart(listingId);
+    setCart(updated);
+    addToast('info', 'Item Removed', 'The item was removed from your cart.');
+  };
+
+  // Cart Handover Checkout (Student-to-student peer request)
+  const handleCartCheckoutSubmit = (
+    selectedItems: CartItem[],
+    handoverLocation: string,
+    preferredTime: string,
+    notes: string
+  ) => {
+    if (!ensureVerifiedUtmUser('submit purchase handover requests')) return;
+
+    const effectiveName = currentUser?.name || userProfile.name;
+    const effectiveEmail = currentUser?.email || userProfile.email;
+
+    selectedItems.forEach((item) => {
+      const newReq = storageService.createTradeRequest({
+        listingId: item.listingId,
+        listingTitle: item.listing.title,
+        listingPrice: item.listing.price,
+        listingImage: item.listing.imageUrl,
+        sellerName: item.listing.sellerName,
+        buyerName: effectiveName,
+        buyerContact: effectiveEmail || '012-345-6789',
+        offeredPrice: item.listing.price * item.quantity,
+        pickupLocation: handoverLocation,
+        message: `${notes} (Qty: ${item.quantity}, Preferred Time: ${preferredTime})`,
       });
-  }, [listings, searchQuery, selectedCategory, maxPrice, sortOrder]);
+      setTradeRequests((prev) => [newReq, ...prev]);
 
-  // Favorite toggle handler
+      // Notify seller via direct message
+      storageService.sendChatMessage(
+        `chat-${item.listing.sellerName.toLowerCase().replace(/\s+/g, '-')}`,
+        `Hi ${item.listing.sellerName}! I submitted a handover request for "${item.listing.title}" at ${handoverLocation} (${preferredTime}).`,
+        {
+          id: item.listing.id,
+          title: item.listing.title,
+          price: item.listing.price,
+          imageUrl: item.listing.imageUrl,
+        }
+      );
+    });
+
+    const updatedCart = storageService.clearSelectedCartItems();
+    setCart(updatedCart);
+    setConversations(storageService.getChatConversations());
+
+    addToast(
+      'success',
+      'Handover Request Sent!',
+      `Sent ${selectedItems.length} peer request(s). Track under Me > Buy Requests.`
+    );
+  };
+
+  // --- FAVOURITES TOGGLE ---
   const handleToggleFavorite = (listingId: string) => {
     const updatedFavs = storageService.toggleFavorite(listingId);
     setUserProfile((prev) => ({ ...prev, savedListingIds: updatedFavs }));
     const isSaved = updatedFavs.includes(listingId);
     addToast(
       'info',
-      isSaved ? 'Added to Saved Items' : 'Removed from Saved Items',
-      'Manage saved items in your Student Profile.'
+      isSaved ? 'Added to Favourites' : 'Removed from Favourites',
+      'Saved items can be viewed in your Me tab.'
     );
   };
 
-  // Role Change Handler
-  const handleRoleChange = (role: UserRole) => {
-    const updated = storageService.setUserRole(role);
-    setUserProfile(updated);
-    addToast(
-      'success',
-      `Switched to ${role === 'both' ? 'Buyer & Seller' : role.toUpperCase()} Mode`,
-      'Your UI features and tools have adjusted accordingly.'
-    );
+  // --- CHAT HANDLERS ---
+  const handleStartChat = (
+    sellerName: string, 
+    listing?: Listing, 
+    rentalItem?: RentalItem
+  ) => {
+    if (!ensureVerifiedUtmUser('send marketplace messages', () => handleStartChat(sellerName, listing, rentalItem))) return;
+
+    const effectiveName = currentUser?.name || userProfile.name;
+    const convos = storageService.getChatConversations();
+    let target = convos.find((c) => c.name.toLowerCase() === sellerName.toLowerCase());
+
+    const itemTitle = rentalItem ? rentalItem.name : listing ? listing.title : 'Item';
+    const itemPrice = rentalItem ? rentalItem.pricePerDay : listing ? listing.price : 0;
+    const itemImage = rentalItem ? rentalItem.imageUrl : listing ? listing.imageUrl : '';
+
+    if (!target) {
+      target = {
+        id: `chat-${sellerName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+        type: 'direct',
+        name: sellerName,
+        avatar: listing?.sellerAvatar || rentalItem?.ownerAvatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80`,
+        participants: [
+          { id: 'user-seller', name: sellerName, role: 'Seller' },
+          { id: 'user-current', name: effectiveName, role: 'Buyer' },
+        ],
+        lastMessage: `Inquiry about ${itemTitle}`,
+        lastMessageTime: 'Just now',
+        unreadCount: 0,
+        messages: [
+          {
+            id: `msg-${Date.now()}`,
+            senderId: 'user-current',
+            senderName: effectiveName,
+            text: rentalItem
+              ? `Hi ${sellerName}! I saw your rental listing for "${rentalItem.name}" (RM ${rentalItem.pricePerDay}/day). Where is your preferred campus handover location?`
+              : `Hi ${sellerName}! Is "${listing?.title}" still available? Where is your preferred campus handover spot?`,
+            timestamp: 'Just now',
+            sharedListing: {
+              id: (rentalItem ? rentalItem.id : listing?.id) || '',
+              title: itemTitle,
+              price: itemPrice,
+              imageUrl: itemImage,
+            }
+          }
+        ]
+      };
+      const updatedConvos = [target, ...convos];
+      try {
+        localStorage.setItem('campusloop_chats_v4', JSON.stringify(updatedConvos));
+      } catch {}
+      setConversations(updatedConvos);
+    } else {
+      // Add inquiry message to existing thread
+      storageService.sendChatMessage(
+        target.id,
+        rentalItem
+          ? `Hi ${sellerName}! Inquiring about renting "${rentalItem.name}".`
+          : `Hi ${sellerName}! Is "${listing?.title}" still available?`,
+        {
+          id: (rentalItem ? rentalItem.id : listing?.id) || '',
+          title: itemTitle,
+          price: itemPrice,
+          imageUrl: itemImage,
+        }
+      );
+      setConversations(storageService.getChatConversations());
+    }
+
+    setActiveChatId(target.id);
+    setActiveTab('chat');
+    setDetailModalListing(null);
+    setSelectedRentalItem(null);
   };
 
-  // Create Listing Handler
+  // --- SALE LISTING CREATION ---
+  const handleOpenCreateListingModal = () => {
+    if (!ensureVerifiedUtmUser('create a product listing', () => setIsCreateModalOpen(true))) return;
+    setIsCreateModalOpen(true);
+  };
+
   const handleCreateListing = (newListingData: any) => {
-    const created = storageService.createListing(newListingData);
+    if (!ensureVerifiedUtmUser('publish a product listing')) return;
+
+    const created = storageService.createListing({
+      ...newListingData,
+      sellerName: currentUser?.name || userProfile.name,
+      sellerAvatar: currentUser?.avatarUrl || userProfile.avatarUrl,
+    });
     setListings((prev) => [created, ...prev]);
     setIsCreateModalOpen(false);
-    addToast('success', 'Listing Published!', `"${created.title}" is now visible to campus peers.`);
+    addToast('success', 'Listing Published!', `"${created.title}" is now visible in the marketplace.`);
   };
 
-  // Trade Request Submission
+  // --- TRADE REQUEST FROM MODAL ---
   const handleTradeRequestSubmit = (requestData: any) => {
-    const newReq = storageService.createTradeRequest(requestData);
+    if (!ensureVerifiedUtmUser('submit purchase requests')) return;
+
+    const newReq = storageService.createTradeRequest({
+      ...requestData,
+      buyerName: currentUser?.name || userProfile.name,
+      buyerContact: currentUser?.email || userProfile.email,
+    });
     setTradeRequests((prev) => [newReq, ...prev]);
     setTradeModalListing(null);
 
-    // Also trigger a notification
-    const newNotif: CampusNotification = {
-      id: `notif-${Date.now()}`,
-      type: 'trade_request',
-      title: 'Offer Sent to Seller',
-      message: `Your trade request for "${newReq.listingTitle}" (RM ${newReq.offeredPrice}) was delivered to ${newReq.sellerName}.`,
-      createdAt: 'Just now',
-      isRead: false,
-      linkTab: 'my-requests',
-    };
-    const nextNotifs = [newNotif, ...notifications];
-    setNotifications(nextNotifs);
-    storageService.saveNotifications(nextNotifs);
+    storageService.sendChatMessage(
+      `chat-${newReq.sellerName.toLowerCase().replace(/\s+/g, '-')}`,
+      `Hi ${newReq.sellerName}! I submitted an offer of RM ${newReq.offeredPrice.toFixed(2)} for "${newReq.listingTitle}". Handover at ${newReq.pickupLocation}.`,
+      {
+        id: newReq.listingId,
+        title: newReq.listingTitle,
+        price: newReq.listingPrice,
+        imageUrl: newReq.listingImage,
+      }
+    );
+    setConversations(storageService.getChatConversations());
 
     addToast(
       'success',
-      'Trade Request Sent!',
-      `Sent offer of RM ${newReq.offeredPrice} to ${newReq.sellerName}. Track in My Requests.`
+      'Offer Delivered!',
+      `Sent offer of RM ${newReq.offeredPrice.toFixed(2)} to ${newReq.sellerName}. View in Me > Buy Requests.`
     );
   };
 
-  // Trade Request Status Progression
   const handleUpdateTradeStatus = (requestId: string, status: RequestStatus) => {
+    if (!ensureVerifiedUtmUser('update trade status')) return;
+
     const updated = storageService.updateTradeRequestStatus(requestId, status);
     setTradeRequests(updated);
-    addToast('info', `Status Updated: ${status}`, 'Transaction history updated in local storage.');
-
-    // If completed, prompt user for review or budget sync
-    if (status === 'Completed') {
-      const completedReq = updated.find((r) => r.id === requestId);
-      if (completedReq) {
-        addToast(
-          'success',
-          'Transaction Completed!',
-          'You can now leave a verified review and record this in your Student Budget.'
-        );
-      }
-    }
+    addToast('info', `Status Updated: ${status}`, 'Trade status updated.');
   };
 
-  // Reviews submission
-  const handleSubmitReview = (reviewData: any) => {
-    const created = storageService.addReview(reviewData);
-    setReviews((prev) => [created, ...prev]);
-    setReviewModalRequest(null);
-    addToast('success', 'Verified Review Published!', 'Thank you for building trusted campus reputation.');
-  };
+  // ==========================================
+  // --- PEER RENTAL WORKFLOW HANDLERS ---
+  // ==========================================
 
-  // Borrow Request handler
-  const handleSendBorrowRequest = (req: Omit<BorrowRequest, 'id' | 'createdAt' | 'status' | 'isSentByCurrentUser'>) => {
-    const newBorrowReq: BorrowRequest = {
-      ...req,
-      id: `breq-${Date.now()}`,
-      status: 'Pending',
-      createdAt: new Date().toISOString(),
+  // Step 4: Renter submits a rental request
+  const handleRequestRent = (reqData: {
+    rentalItemId: string;
+    startDate: string;
+    returnDate: string;
+    days: number;
+    pricePerDay: number;
+    rentalFeeTotal: number;
+    securityDeposit: number;
+    totalBeforeRental: number;
+    pickupLocation: string;
+    message: string;
+  }) => {
+    if (!ensureVerifiedUtmUser('submit a rental booking request')) return;
+
+    const item = rentalItems.find((i) => i.id === reqData.rentalItemId);
+    if (!item) return;
+
+    const effectiveName = currentUser?.name || userProfile.name;
+    const effectiveEmail = currentUser?.email || userProfile.email;
+
+    const newReq = storageService.createRentalRequest({
+      rentalItemId: item.id,
+      rentalItemName: item.name,
+      rentalItemImage: item.imageUrl,
+      ownerId: item.ownerId || 'owner-sample',
+      ownerName: item.ownerName,
+      ownerContact: item.ownerContact || '012-987-6543',
+      renterId: currentUser?.studentId || userProfile.studentId || 'user-alex',
+      renterName: effectiveName,
+      renterContact: effectiveEmail || '012-345-6789',
+      startDate: reqData.startDate,
+      returnDate: reqData.returnDate,
+      days: reqData.days,
+      pricePerDay: reqData.pricePerDay,
+      rentalFeeTotal: reqData.rentalFeeTotal,
+      securityDeposit: reqData.securityDeposit,
+      totalBeforeRental: reqData.totalBeforeRental,
+      pickupLocation: reqData.pickupLocation,
+      message: reqData.message,
+      status: 'Pending Approval',
+      depositStatus: 'Not Paid',
       isSentByCurrentUser: true,
-    };
-    addToast('success', 'Borrow Request Sent!', `Lender ${req.lenderName} will verify pickup arrangements.`);
-  };
+    });
 
-  // Free Claim handler
-  const handleClaimFreeItem = (item: Listing, pickupSpot: string, note: string) => {
+    setRentalRequests(storageService.getRentalRequests());
+    setSelectedRentalItem(null);
+
+    // Notify owner in chat
+    storageService.sendChatMessage(
+      `chat-${item.ownerName.toLowerCase().replace(/\s+/g, '-')}`,
+      `Hi ${item.ownerName}! I submitted a rental request for "${item.name}" from ${reqData.startDate} to ${reqData.returnDate} (${reqData.days} days). Total: RM ${reqData.totalBeforeRental.toFixed(2)} (Fee: RM ${reqData.rentalFeeTotal} + Deposit: RM ${reqData.securityDeposit}).`,
+      {
+        id: item.id,
+        title: item.name,
+        price: item.pricePerDay,
+        imageUrl: item.imageUrl,
+      }
+    );
+    setConversations(storageService.getChatConversations());
+    setNotifications(storageService.getNotifications());
+
     addToast(
       'success',
-      'Free Item Claim Sent!',
-      `Contacted ${item.sellerName} for pickup at ${item.campusLocation || item.location}. Thank you for promoting zero waste!`
+      'Rental Request Sent!',
+      `Requested "${item.name}" for ${reqData.days} day(s). Awaiting owner confirmation.`
     );
   };
 
-  // Notification actions
-  const handleMarkNotifRead = (id: string) => {
-    const updated = notifications.map(n => n.id === id ? { ...n, isRead: true, read: true } : n);
-    setNotifications(updated);
-    storageService.saveNotifications(updated);
+  // Open Create Rental Listing modal
+  const handleOpenCreateRentalModal = () => {
+    if (!ensureVerifiedUtmUser('list items for rent', () => {
+      setEditingRentalItem(null);
+      setIsCreateRentalModalOpen(true);
+    })) return;
+
+    setEditingRentalItem(null);
+    setIsCreateRentalModalOpen(true);
   };
 
-  const handleMarkAllNotifsRead = () => {
-    const updated = notifications.map(n => ({ ...n, isRead: true, read: true }));
-    setNotifications(updated);
-    storageService.saveNotifications(updated);
+  // List an item for rent (or update existing)
+  const handleCreateOrUpdateRentalListing = (data: Omit<RentalItem, 'id' | 'createdAt'>) => {
+    if (!ensureVerifiedUtmUser('publish or update rental listings')) return;
+
+    const effectiveName = currentUser?.name || userProfile.name;
+
+    if (editingRentalItem) {
+      storageService.updateRentalItem(editingRentalItem.id, data);
+      addToast('success', 'Rental Item Updated!', `"${data.name}" details updated.`);
+      setEditingRentalItem(null);
+    } else {
+      const created = storageService.createRentalItem({
+        ...data,
+        ownerName: effectiveName,
+        ownerAvatar: currentUser?.avatarUrl || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80`,
+        isUserCreated: true,
+      });
+      addToast('success', 'Rental Listed!', `"${created.name}" is now available for students to rent.`);
+    }
+    setRentalItems(storageService.getRentalItems());
+    setIsCreateRentalModalOpen(false);
   };
 
-  const handleClearNotifs = () => {
-    setNotifications([]);
-    storageService.saveNotifications([]);
+  // Toggle active/pause for rental listing
+  const handleToggleRentalAvailability = (id: string) => {
+    if (!ensureVerifiedUtmUser('modify rental availability')) return;
+
+    const item = rentalItems.find((i) => i.id === id);
+    if (!item) return;
+    const nextAvailability = !item.isAvailable;
+    storageService.updateRentalItem(id, { isAvailable: nextAvailability });
+    setRentalItems(storageService.getRentalItems());
+    addToast(
+      'info',
+      nextAvailability ? 'Rental Listing Activated' : 'Rental Listing Paused',
+      `"${item.name}" is now ${nextAvailability ? 'visible to renters' : 'hidden from browse'}.`
+    );
   };
 
-  // Direct DM handler from Wanted or Listing
-  const handleOpenDirectChat = (recipientName: string, initialText?: string) => {
-    setActiveTab('chat');
-    if (initialText) {
-      addToast('info', `Opening Chat with ${recipientName}`, initialText);
+  // Delete rental listing
+  const handleDeleteRentalItem = (id: string) => {
+    if (!ensureVerifiedUtmUser('delete rental listings')) return;
+
+    storageService.deleteRentalItem(id);
+    setRentalItems(storageService.getRentalItems());
+    addToast('info', 'Rental Listing Deleted', 'The item was removed from your rental inventory.');
+  };
+
+  // Step 5: Owner accepts or rejects rental
+  const handleUpdateRentalStatus = (requestId: string, status: RentalStatus) => {
+    if (!ensureVerifiedUtmUser('update rental booking status')) return;
+
+    storageService.updateRentalRequestStatus(requestId, status);
+    setRentalRequests(storageService.getRentalRequests());
+    setRentalItems(storageService.getRentalItems());
+    setNotifications(storageService.getNotifications());
+    addToast('info', `Rental Status: ${status}`, 'Rental request updated.');
+  };
+
+  // Step 6 & 7: Handover inspection & condition baseline recorded -> marks Rented Out
+  const handleRecordHandover = (requestId: string, notes: string) => {
+    if (!ensureVerifiedUtmUser('record handover condition')) return;
+
+    storageService.recordHandoverCondition(requestId, notes);
+    setRentalRequests(storageService.getRentalRequests());
+    setRentalItems(storageService.getRentalItems());
+    setNotifications(storageService.getNotifications());
+    setHandoverModalRequest(null);
+    addToast(
+      'success',
+      'Handover Confirmed & Rented Out',
+      'Baseline condition saved. The rental period has officially begun!'
+    );
+  };
+
+  // Step 8: Renter reports/confirms return
+  const handleConfirmReturn = (requestId: string) => {
+    if (!ensureVerifiedUtmUser('confirm equipment return')) return;
+
+    storageService.confirmRenterReturn(requestId);
+    setRentalRequests(storageService.getRentalRequests());
+    setNotifications(storageService.getNotifications());
+    addToast(
+      'success',
+      'Return Handed Over!',
+      'Return reported. The owner will inspect the item and approve your deposit refund.'
+    );
+  };
+
+  // Step 9: Owner inspects returned item
+  const handleRecordInspection = (
+    requestId: string, 
+    notes: string, 
+    passed: boolean, 
+    proposedDeduction = 0, 
+    deductionReason?: string
+  ) => {
+    if (!ensureVerifiedUtmUser('perform return inspection')) return;
+
+    storageService.recordReturnInspection(requestId, notes, passed, proposedDeduction, deductionReason);
+    setRentalRequests(storageService.getRentalRequests());
+    setRentalItems(storageService.getRentalItems());
+    setNotifications(storageService.getNotifications());
+    setInspectionModalRequest(null);
+
+    if (passed) {
+      addToast(
+        'success',
+        'Inspection Passed! 🌟',
+        'Item returned in agreed condition. Full deposit refund is ready for release.'
+      );
+    } else {
+      addToast(
+        'info',
+        'Dispute Initiated',
+        `Proposed deduction of RM ${proposedDeduction} recorded. Renter will be notified.`
+      );
     }
   };
 
-  // Pending counts
-  const pendingRequestsCount = tradeRequests.filter(
-    (r) => r.status === 'Pending' && !r.isSentByCurrentUser
-  ).length;
+  // Step 10 & 11: Owner approves deposit refund -> marks Completed
+  const handleApproveDepositRefund = (requestId: string, refundAmount: number) => {
+    if (!ensureVerifiedUtmUser('approve deposit refunds')) return;
 
+    storageService.approveDepositRefund(requestId, refundAmount);
+    setRentalRequests(storageService.getRentalRequests());
+    setRentalItems(storageService.getRentalItems());
+    setNotifications(storageService.getNotifications());
+    addToast(
+      'success',
+      'Deposit Refund Approved! 💸',
+      `RM ${refundAmount.toFixed(2)} recorded as refunded. Rental completed!`
+    );
+  };
+
+  // Step 10 dispute resolution
+  const handleResolveDispute = (
+    requestId: string, 
+    agreedRefundAmount: number, 
+    notes: string, 
+    renterResponse?: string
+  ) => {
+    if (!ensureVerifiedUtmUser('resolve rental disputes')) return;
+
+    storageService.resolveDispute(requestId, agreedRefundAmount, notes, renterResponse);
+    setRentalRequests(storageService.getRentalRequests());
+    setNotifications(storageService.getNotifications());
+    setDisputeModalRequest(null);
+    addToast('success', 'Dispute Agreement Recorded', `Agreed deposit refund set to RM ${agreedRefundAmount.toFixed(2)}.`);
+  };
+
+  // --- NOTIFICATION HANDLERS ---
+  const handleMarkNotificationRead = (id: string) => {
+    const updated = storageService.markNotificationAsRead(id);
+    setNotifications(updated);
+  };
+
+  const handleMarkAllNotificationsRead = () => {
+    const updated = storageService.markAllNotificationsAsRead();
+    setNotifications(updated);
+  };
+
+  const handleClearAllNotifications = () => {
+    const updated = storageService.clearAllNotifications();
+    setNotifications(updated);
+  };
+
+  // Profile update
+  const handleUpdateProfile = (updated: Partial<UserProfile>) => {
+    const next = { ...userProfile, ...updated };
+    setUserProfile(next);
+    try {
+      localStorage.setItem('campusloop_user_profile_v4', JSON.stringify(next));
+    } catch {}
+  };
+
+  // Reset Prototype Data
+  const handleResetData = () => {
+    storageService.resetPrototypeData();
+    loadAllData();
+    addToast('success', 'Reset Complete', 'Fresh sample marketplace & rental data restored.');
+  };
+
+  // Navigate to Mall with specific category
+  const handleNavigateMall = (category: Category = 'All') => {
+    setMallCategory(category);
+    setActiveTab('mall');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Saved listings objects
+  const savedListings = listings.filter((l) => userProfile.savedListingIds.includes(l.id));
+
+  // Counts for Badges
   const unreadChatCount = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
-  const unreadNotificationsCount = notifications.filter(n => !(n.isRead === true || n.read === true)).length;
+  const unreadNotifCount = notifications.filter((n) => !n.isRead && !n.read).length;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col antialiased selection:bg-indigo-100 selection:text-indigo-900">
-      
-      {/* Toast Alert Notifications */}
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col antialiased selection:bg-blue-100 selection:text-blue-900 pb-20 md:pb-8">
+      {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
 
-      {/* Top Universal Navbar */}
+      {/* Top Navbar & 6-Tab Mobile Bottom Navigation */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        openCreateModal={() => setIsCreateModalOpen(true)}
-        pendingRequestsCount={pendingRequestsCount}
+        openCreateModal={handleOpenCreateListingModal}
+        openCreateRentalModal={handleOpenCreateRentalModal}
+        cartCount={cart.length}
         unreadChatCount={unreadChatCount}
-        unreadNotificationsCount={unreadNotificationsCount}
+        unreadNotificationsCount={unreadNotifCount}
         onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
-        onOpenEditionChecker={() => setIsEditionCheckerOpen(true)}
-        userRole={userProfile.role}
-        onRoleChange={handleRoleChange}
+        accountState={accountState}
+        currentUser={currentUser}
+        onOpenAuthModal={() => handleOpenAuthModal('login')}
+        onSignOut={handleSignOut}
       />
 
-      {/* Main Content Router */}
-      <main className="flex-1">
+      {/* Main View Area based on the 6 Shopping & Rental Tabs */}
+      <main className="flex-1 w-full">
+        {/* TAB 1: HOME */}
         {activeTab === 'home' && (
-          <div className="space-y-6 pb-16">
-            {/* Hero Section */}
-            <HeroBanner
-              onExploreClick={() => {
-                const el = document.getElementById('marketplace-listings');
-                el?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              onCreateClick={() => setIsCreateModalOpen(true)}
-            />
-
-            {/* Quick Textbook Syllabus Banner */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="bg-gradient-to-r from-indigo-500 via-sky-600 to-indigo-600 rounded-2xl p-4 text-white shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0">
-                    <BookOpen className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold">Textbook Edition & Syllabus Checker</h3>
-                    <p className="text-xs text-sky-100">
-                      Need course books? Check if older textbook editions match your lecturer's problem sets and save up to RM 160.
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setIsEditionCheckerOpen(true)}
-                  className="px-4 py-2 rounded-xl bg-white text-indigo-700 hover:bg-sky-50 font-bold text-xs shadow-xs transition-colors shrink-0"
-                >
-                  Check Course Codes
-                </button>
-              </div>
-            </div>
-
-            {/* Filter and Search Bar */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <FilterBar
-                searchQuery={searchQuery}
-                setSearchQuery={setSearchQuery}
-                selectedCategory={selectedCategory}
-                setSelectedCategory={setSelectedCategory}
-                sortOrder={sortOrder}
-                setSortOrder={setSortOrder}
-                maxPrice={maxPrice}
-                setMaxPrice={setMaxPrice}
-                totalResultsCount={filteredListings.length}
-                onClearFilters={() => {
-                  setSearchQuery('');
-                  setSelectedCategory('All');
-                  setMaxPrice(null);
-                  setSortOrder('newest');
-                }}
-              />
-            </div>
-
-            {/* Marketplace Grid */}
-            <div id="marketplace-listings" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              {isLoading ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                    <div
-                      key={i}
-                      className="bg-white rounded-2xl border border-slate-200 h-80 animate-pulse p-4 space-y-3"
-                    >
-                      <div className="h-44 bg-slate-100 rounded-xl"></div>
-                      <div className="h-4 bg-slate-100 rounded w-3/4"></div>
-                      <div className="h-4 bg-slate-100 rounded w-1/2"></div>
-                    </div>
-                  ))}
-                </div>
-              ) : filteredListings.length === 0 ? (
-                <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center max-w-md mx-auto space-y-4 my-8 shadow-xs">
-                  <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
-                    <PackageSearch className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-800">No Listings Found</h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      No items matched "{searchQuery}" under category {selectedCategory}. Try resetting filters or post a request on the Wanted Board!
-                    </p>
-                  </div>
-                  <div className="flex justify-center gap-2 pt-2">
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setSelectedCategory('All');
-                        setMaxPrice(null);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold"
-                    >
-                      Reset Filters
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('wanted')}
-                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs"
-                    >
-                      Post to Wanted Board
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {filteredListings.map((listing) => (
-                    <ListingCard
-                      key={listing.id}
-                      listing={listing}
-                      onSelect={(item: Listing) => setDetailModalListing(item)}
-                      onRequestTrade={(item: Listing) => setTradeModalListing(item)}
-                      onToggleSave={handleToggleFavorite}
-                      isSaved={(userProfile.savedListingIds || []).includes(listing.id)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Borrow & Lend Gear */}
-        {activeTab === 'borrow' && (
-          <BorrowView
+          <HomeView
             listings={listings}
-            onSendBorrowRequest={handleSendBorrowRequest}
-            onUpdateBorrowStatus={(id, status) => {
-              addToast('info', `Borrow status: ${status}`, 'Lending terms recorded.');
-            }}
+            onSelectListing={(item) => setDetailModalListing(item)}
+            onAddToCart={handleAddToCart}
+            onToggleFavorite={handleToggleFavorite}
+            savedListingIds={userProfile.savedListingIds}
+            onNavigateMall={handleNavigateMall}
+            onOpenCreateModal={handleOpenCreateListingModal}
           />
         )}
 
-        {/* Wanted Bulletin Board */}
-        {activeTab === 'wanted' && (
-          <WantedBoardView
-            onOpenDirectChat={handleOpenDirectChat}
+        {/* TAB 2: CART */}
+        {activeTab === 'cart' && (
+          <CartView
+            cart={cart}
+            onToggleSelect={handleToggleSelectCartItem}
+            onSelectAll={handleSelectAllCart}
+            onUpdateQuantity={handleUpdateCartQuantity}
+            onRemoveItem={handleRemoveFromCart}
+            onSelectListing={(item) => setDetailModalListing(item)}
+            onNavigateMall={() => handleNavigateMall('All')}
+            onCheckoutSubmit={handleCartCheckoutSubmit}
           />
         )}
 
-        {/* Free & Circular Reuse Giveaways */}
-        {activeTab === 'free' && (
-          <FreeReuseView
-            onClaimItem={handleClaimFreeItem}
-          />
-        )}
-
-        {/* Price Intelligence & Competitor Benchmark */}
-        {activeTab === 'pricing' && (
-          <PriceIntelligenceView
+        {/* TAB 3: MALL */}
+        {activeTab === 'mall' && (
+          <MallView
             listings={listings}
-            onSelectListing={(item: Listing) => setDetailModalListing(item)}
-            onRequestTrade={(item: Listing) => setTradeModalListing(item)}
+            initialCategory={mallCategory}
+            onSelectListing={(item) => setDetailModalListing(item)}
+            onAddToCart={handleAddToCart}
+            onToggleFavorite={handleToggleFavorite}
+            savedListingIds={userProfile.savedListingIds}
           />
         )}
 
-        {/* Student Personal Finance & Budget */}
-        {activeTab === 'budget' && (
-          <BudgetView
-            transactions={budgetTransactions}
-            settings={budgetSettings}
-            tradeRequests={tradeRequests}
-            onRefreshData={loadAllData}
+        {/* TAB 4: RENT (DEDICATED RENTAL MARKETPLACE) */}
+        {activeTab === 'rent' && (
+          <RentView
+            rentalItems={rentalItems}
+            onSelectRentalItem={(item) => setSelectedRentalItem(item)}
+            onOpenCreateRentalModal={handleOpenCreateRentalModal}
           />
         )}
 
-        {/* Campus Cute Cartoon Pet & Pocket Garden */}
-        {activeTab === 'games' && (
-          <CampusPetView
-            pet={virtualPet}
-            onRefreshPet={() => setVirtualPet(storageService.getVirtualPet())}
-          />
-        )}
-
-        {/* Direct Messages & Study Groups */}
+        {/* TAB 5: CHAT */}
         {activeTab === 'chat' && (
           <ChatView
             conversations={conversations}
             listings={listings}
-            onSelectListing={(item: Listing) => setDetailModalListing(item)}
-            onRefreshConversations={loadAllData}
+            activeConversationId={activeChatId}
+            onSelectConversation={setActiveChatId}
+            onSelectListing={(item) => setDetailModalListing(item)}
+            onRefreshConversations={() => setConversations(storageService.getChatConversations())}
           />
         )}
 
-        {/* Trade Requests & Offers */}
-        {activeTab === 'my-requests' && (
-          <MyRequestsView
-            requests={tradeRequests}
-            onStatusChange={handleUpdateTradeStatus}
-            onOpenReviewModal={(req: TradeRequest, role: 'Buyer' | 'Seller') => {
-              setReviewModalRequest(req);
-              setReviewModalRole(role);
-            }}
-            onNavigateHome={() => setActiveTab('home')}
-          />
-        )}
-
-        {/* My Active Listings (Seller Mode) */}
-        {activeTab === 'my-listings' && (
-          <MyListingsView
-            listings={listings.filter((l: Listing) => l.isUserCreated)}
-            onSelectListing={(item: Listing) => setDetailModalListing(item)}
-            openCreateModal={() => setIsCreateModalOpen(true)}
-            onNavigateExplore={() => setActiveTab('home')}
-          />
-        )}
-
-        {/* Student Profile & Verified Reputation */}
-        {activeTab === 'profile' && (
-          <ProfileView
+        {/* TAB 6: ME */}
+        {activeTab === 'me' && (
+          <MeView
             profile={userProfile}
-            totalListingsCount={listings.filter((l: Listing) => l.isUserCreated).length}
-            totalRequestsCount={tradeRequests.length}
-            reviews={reviews}
-            savedListings={listings.filter((l: Listing) =>
-              (userProfile.savedListingIds || []).includes(l.id)
-            )}
-            onRoleChange={handleRoleChange}
-            onSelectListing={(item: Listing) => setDetailModalListing(item)}
-            onReportReview={(id: string) => addToast('info', 'Report Submitted', 'Moderation review underway.')}
-            onResetData={() => {
-              storageService.resetPrototypeData();
-              loadAllData();
-              addToast('info', 'Prototype Reset', 'Default mock data reloaded.');
+            currentUser={currentUser}
+            accountState={accountState}
+            listings={listings}
+            tradeRequests={tradeRequests}
+            savedListings={savedListings}
+            rentalItems={rentalItems}
+            rentalRequests={rentalRequests}
+            onSelectListing={(item) => setDetailModalListing(item)}
+            onSelectRentalItem={(item) => setSelectedRentalItem(item)}
+            onOpenCreateModal={handleOpenCreateListingModal}
+            onOpenCreateRentalModal={handleOpenCreateRentalModal}
+            onEditRentalItem={(item) => {
+              if (!ensureVerifiedUtmUser('edit a rental listing')) return;
+              setEditingRentalItem(item);
+              setIsCreateRentalModalOpen(true);
             }}
+            onToggleRentalAvailability={handleToggleRentalAvailability}
+            onDeleteRentalItem={handleDeleteRentalItem}
+            onUpdateTradeStatus={handleUpdateTradeStatus}
+            onUpdateRentalStatus={handleUpdateRentalStatus}
+            onOpenHandoverModal={(req) => {
+              if (!ensureVerifiedUtmUser('record handover condition')) return;
+              setHandoverModalRequest(req);
+            }}
+            onOpenInspectionModal={(req) => {
+              if (!ensureVerifiedUtmUser('perform return inspection')) return;
+              setInspectionModalRequest(req);
+            }}
+            onOpenDisputeModal={(req) => {
+              if (!ensureVerifiedUtmUser('manage dispute records')) return;
+              setDisputeModalRequest(req);
+            }}
+            onApproveDepositRefund={handleApproveDepositRefund}
+            onConfirmReturn={handleConfirmReturn}
+            onRemoveFavorite={handleToggleFavorite}
+            onUpdateProfile={handleUpdateProfile}
+            onResetData={handleResetData}
+            onSignOut={handleSignOut}
+            onOpenAuthModal={() => handleOpenAuthModal('login')}
           />
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-8 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-800">CampusLoop 3.0</span>
-            <span>·</span>
-            <span>Sustainable Campus Lifestyle & Peer Marketplace</span>
-          </div>
-          <div className="text-center sm:text-right text-[11px] text-slate-400">
-            Persistent Prototype Layer (localStorage) · Ready for Google Firebase Firestore Integration
-          </div>
-        </div>
-      </footer>
+      {/* ============================================================== */}
+      {/* MODALS & DRAWERS */}
+      {/* ============================================================== */}
 
-      {/* MODALS */}
-
-      {/* Listing Detail Modal */}
+      {/* Product Details Modal (Mall / Buy) */}
       {detailModalListing && (
         <ListingDetailModal
           listing={detailModalListing}
           onClose={() => setDetailModalListing(null)}
-          onRequestTrade={(item: Listing) => {
+          onAddToCart={handleAddToCart}
+          onToggleFavorite={handleToggleFavorite}
+          isFavorite={userProfile.savedListingIds.includes(detailModalListing.id)}
+          onStartChat={(sellerName, listing) => handleStartChat(sellerName, listing)}
+          onRequestTrade={(listing) => {
+            if (!ensureVerifiedUtmUser('request to buy an item', () => {
+              setDetailModalListing(null);
+              setTradeModalListing(listing);
+            })) return;
             setDetailModalListing(null);
-            setTradeModalListing(item);
+            setTradeModalListing(listing);
           }}
-          onToggleSave={handleToggleFavorite}
-          isSaved={(userProfile.savedListingIds || []).includes(detailModalListing.id)}
-          sellerReviews={reviews.filter((r) => r.revieweeName === detailModalListing.sellerName)}
+          reviews={reviews}
         />
       )}
 
-      {/* Trade Request Modal */}
+      {/* Trade / Purchase Request Modal */}
       {tradeModalListing && (
         <TradeRequestModal
           listing={tradeModalListing}
@@ -560,47 +862,94 @@ export default function App() {
         />
       )}
 
-      {/* Create Listing Modal */}
-      <CreateListingModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onListingCreated={handleCreateListing}
-      />
-
-      {/* Review & Reputation Modal */}
-      {reviewModalRequest && (
-        <ReviewModal
-          request={reviewModalRequest}
-          currentUserRole={reviewModalRole}
-          currentUserName={userProfile.name}
-          onClose={() => setReviewModalRequest(null)}
-          onSubmit={handleSubmitReview}
+      {/* Create Listing ("Sell an Item") Modal */}
+      {isCreateModalOpen && (
+        <CreateListingModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          onListingCreated={handleCreateListing}
         />
       )}
 
-      {/* Textbook Edition Checker Modal */}
-      <TextbookEditionCheckerModal
-        isOpen={isEditionCheckerOpen}
-        onClose={() => setIsEditionCheckerOpen(false)}
-        onSelectBookForSearch={(bookTitle) => {
-          setActiveTab('home');
-          setSearchQuery(bookTitle.split(' ')[0]);
-        }}
-      />
+      {/* Rental Details Modal (Rent tab & Me) */}
+      {selectedRentalItem && (
+        <RentalDetailModal
+          item={selectedRentalItem}
+          onClose={() => setSelectedRentalItem(null)}
+          onRequestRent={handleRequestRent}
+          onStartChat={(ownerName, item) => handleStartChat(ownerName, undefined, item)}
+        />
+      )}
 
-      {/* Notification Drawer */}
+      {/* Create / Edit Rental Listing Modal */}
+      {isCreateRentalModalOpen && (
+        <CreateRentalModal
+          isOpen={isCreateRentalModalOpen}
+          onClose={() => {
+            setIsCreateRentalModalOpen(false);
+            setEditingRentalItem(null);
+          }}
+          onListingCreated={handleCreateOrUpdateRentalListing}
+          editItem={editingRentalItem}
+        />
+      )}
+
+      {/* Handover Condition Modal (Step 6) */}
+      {handoverModalRequest && (
+        <HandoverModal
+          request={handoverModalRequest}
+          onClose={() => setHandoverModalRequest(null)}
+          onConfirm={handleRecordHandover}
+        />
+      )}
+
+      {/* Return Inspection Modal (Step 9) */}
+      {inspectionModalRequest && (
+        <InspectionModal
+          request={inspectionModalRequest}
+          onClose={() => setInspectionModalRequest(null)}
+          onRecordInspection={handleRecordInspection}
+        />
+      )}
+
+      {/* Dispute Resolution Modal (Step 10 Dispute) */}
+      {disputeModalRequest && (
+        <DisputeModal
+          request={disputeModalRequest}
+          onClose={() => setDisputeModalRequest(null)}
+          onResolveDispute={handleResolveDispute}
+          isOwner={disputeModalRequest.ownerName === (currentUser?.name || userProfile.name) || !disputeModalRequest.isSentByCurrentUser}
+        />
+      )}
+
+      {/* Campus Notifications Drawer */}
       <NotificationDrawer
         isOpen={isNotificationDrawerOpen}
         onClose={() => setIsNotificationDrawerOpen(false)}
         notifications={notifications}
-        onMarkAsRead={handleMarkNotifRead}
-        onMarkAllAsRead={handleMarkAllNotifsRead}
-        onClearAll={handleClearNotifs}
+        onMarkAsRead={handleMarkNotificationRead}
+        onMarkAllAsRead={handleMarkAllNotificationsRead}
+        onClearAll={handleClearAllNotifications}
         onNavigateTab={(tab) => {
-          setActiveTab(tab);
+          if (tab === 'rent' || tab === 'me' || tab === 'chat' || tab === 'mall' || tab === 'cart') {
+            setActiveTab(tab);
+          }
         }}
       />
 
+      {/* UTM Authentication Modal */}
+      {isAuthModalOpen && (
+        <UtmAuthModal
+          isOpen={isAuthModalOpen}
+          initialMode={authModalMode}
+          onClose={() => {
+            setIsAuthModalOpen(false);
+            setPendingAction(null);
+          }}
+          onSuccess={handleAuthSuccess}
+          intendedActionLabel={intendedActionLabel}
+        />
+      )}
     </div>
   );
 }

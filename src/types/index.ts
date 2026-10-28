@@ -1,13 +1,80 @@
+export const ALLOWED_UTM_DOMAINS = [
+  'graduate.utm.my',
+  'student.utm.my',
+  'utm.my',
+] as const;
+
+export type UtmDomain = typeof ALLOWED_UTM_DOMAINS[number];
+
+export type AccountState = 
+  | 'Signed Out' 
+  | 'Email Verification Pending' 
+  | 'Verified UTM Member' 
+  | 'Suspended';
+
+export interface UTMUser {
+  id: string;
+  email: string;
+  name: string;
+  studentId?: string;
+  faculty?: string;
+  role: 'student' | 'staff';
+  accountState: AccountState;
+  emailVerified: boolean;
+  isSuspended: boolean;
+  avatarUrl?: string;
+  contactHandle?: string;
+  dorm?: string;
+  verifiedTransactionsCount?: number;
+  createdAt: string;
+}
+
+export interface AuthSession {
+  token: string;
+  user: UTMUser;
+  expiresAt: number;
+}
+
+export const MALL_CATEGORIES = [
+  'Textbooks & Notes',
+  'Electronics',
+  'Stationery',
+  'Dorm Essentials',
+  'Clothing & Accessories',
+  'Sports & Fitness',
+  'Beauty & Personal Care',
+  'Food & Snacks',
+  'Other Items',
+] as const;
+
+export type MallCategory = typeof MALL_CATEGORIES[number];
+
 export type Category = 
   | 'All'
-  | 'Textbooks'
+  | 'Textbooks & Notes'
   | 'Electronics'
-  | 'Dorm Essentials'
   | 'Stationery'
+  | 'Dorm Essentials'
+  | 'Clothing & Accessories'
+  | 'Sports & Fitness'
+  | 'Beauty & Personal Care'
+  | 'Food & Snacks'
+  | 'Other Items'
+  // Legacy aliases for compatibility
+  | 'Textbooks'
   | 'Project Equipment'
   | 'Clothing'
   | 'Sports Equipment'
   | 'Other';
+
+export interface CartItem {
+  id: string;
+  listingId: string;
+  listing: Listing;
+  quantity: number;
+  selected: boolean;
+  addedAt: string;
+}
 
 export type Condition = 'Brand New' | 'Like New' | 'Good' | 'Fair';
 
@@ -192,6 +259,7 @@ export interface FreeClaimRequest {
 }
 
 export interface UserProfile {
+  id?: string;
   name: string;
   studentId: string;
   email: string;
@@ -203,6 +271,9 @@ export interface UserProfile {
   role: UserRole;
   verifiedTransactionsCount: number;
   savedListingIds: string[];
+  accountState?: AccountState;
+  emailVerified?: boolean;
+  isSuspended?: boolean;
 }
 
 export interface Review {
@@ -323,7 +394,15 @@ export type NotificationType =
   | 'borrow_reminder'
   | 'price_alert'
   | 'budget_warning'
-  | 'pet_milestone';
+  | 'pet_milestone'
+  | 'rental'
+  | 'rental_request'
+  | 'rental_approved'
+  | 'rental_rejected'
+  | 'rental_return_reminder'
+  | 'rental_inspected'
+  | 'rental_refunded'
+  | 'rental_dispute';
 
 export interface CampusNotification {
   id: string;
@@ -335,4 +414,112 @@ export interface CampusNotification {
   timestamp?: string;
   createdAt?: string;
   linkTab?: string;
+  relatedRentalId?: string;
+}
+
+// ==========================================
+// RENTAL SYSTEM TYPES
+// ==========================================
+
+export const RENTAL_CATEGORIES = [
+  'Calculators & Study Equipment',
+  'Electronics',
+  'Cameras & Photography',
+  'Sports Equipment',
+  'Dorm Essentials',
+  'Clothing & Accessories',
+  'Event & Project Equipment',
+  'Other Items',
+] as const;
+
+export type RentalCategory = typeof RENTAL_CATEGORIES[number];
+
+export type RentalStatus = 
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Ready for Handover'
+  | 'Rented Out'
+  | 'Return Pending'
+  | 'Inspection Pending'
+  | 'Refund Pending'
+  | 'Dispute'
+  | 'Completed'
+  | 'Rejected'
+  | 'Cancelled';
+
+export type DepositStatus = 
+  | 'Not Paid'
+  | 'Paid'
+  | 'Refund Pending'
+  | 'Refunded'
+  | 'Dispute';
+
+export interface RentalItem {
+  id: string;
+  name: string;
+  description: string;
+  category: RentalCategory;
+  condition: Condition;
+  images: string[];
+  imageUrl: string;
+  pricePerDay: number; // in RM
+  securityDeposit: number; // refundable in RM
+  availableDates: string;
+  pickupLocation: string;
+  rules: string;
+  ownerId: string;
+  ownerName: string;
+  ownerContact: string;
+  ownerAvatar?: string;
+  ownerRating?: number;
+  ownerFaculty?: string;
+  isAvailable: boolean; // can be paused or deactivated by owner
+  isUserCreated?: boolean;
+  createdAt: string;
+}
+
+export interface RentalRequest {
+  id: string;
+  rentalItemId: string;
+  rentalItemName: string;
+  rentalItemImage: string;
+  ownerId: string;
+  ownerName: string;
+  ownerContact: string;
+  renterId: string;
+  renterName: string;
+  renterContact: string;
+  startDate: string; // YYYY-MM-DD
+  returnDate: string; // YYYY-MM-DD
+  days: number;
+  pricePerDay: number;
+  rentalFeeTotal: number;
+  securityDeposit: number;
+  totalBeforeRental: number; // rentalFeeTotal + securityDeposit
+  pickupLocation: string;
+  message?: string;
+  status: RentalStatus;
+  depositStatus: DepositStatus;
+
+  // Handover condition
+  handoverConditionNotes?: string;
+  handoverConfirmedAt?: string;
+
+  // Return inspection
+  returnReportedAt?: string;
+  returnConditionNotes?: string;
+  inspectionPassed?: boolean;
+  proposedDeduction?: number;
+  deductionReason?: string;
+  disputeNotes?: string;
+  renterDisputeResponse?: string;
+
+  // Refund record
+  refundAmount?: number;
+  refundDate?: string;
+  isSimulatedPayment?: boolean;
+  isSentByCurrentUser?: boolean;
+
+  createdAt: string;
+  updatedAt: string;
 }

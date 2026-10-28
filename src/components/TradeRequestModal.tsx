@@ -182,8 +182,8 @@ export const TradeRequestModal: React.FC<TradeRequestModalProps> = ({
             />
           </div>
 
-          <div className="p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 flex items-center gap-2 text-[11px] text-indigo-900">
-            <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+          <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-100 flex items-center gap-2 text-[11px] text-blue-900">
+            <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
             <span>Campus Safe-Trade: Cash or DuitNow upon physical handover and inspection.</span>
           </div>
 
@@ -198,7 +198,7 @@ export const TradeRequestModal: React.FC<TradeRequestModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-colors"
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors"
             >
               {isSubmitting ? 'Sending Request...' : 'Send Trade Request'}
             </button>

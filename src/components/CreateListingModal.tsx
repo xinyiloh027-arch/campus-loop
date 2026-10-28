@@ -6,34 +6,27 @@ import {
   Trash2, 
   Check, 
   AlertCircle, 
-  ShieldCheck, 
-  Info,
-  Sparkles
+  PlusCircle, 
+  Image as ImageIcon 
 } from 'lucide-react';
-import { Category, Condition, Listing } from '../types';
+import { Category, Condition, Listing, MALL_CATEGORIES, MallCategory } from '../types';
 import { POPULAR_CAMPUS_LOCATIONS } from '../data/mockData';
 
 interface CreateListingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onListingCreated: (newListing: Listing) => void;
+  onListingCreated: (newListing: any) => void;
 }
 
 const PRESET_IMAGES = [
-  { name: 'Calculus Textbook', url: '/src/assets/images/calculus_textbook_stewart_1793108041994.jpg' },
-  { name: 'Wireless Mouse', url: '/src/assets/images/wireless_mouse_desk_1793108041826.jpg' },
-  { name: 'Dorm Study Lamp', url: '/src/assets/images/desk_lamp_dorm_1793108042346.jpg' },
-  { name: 'Graphing Calculator', url: '/src/assets/images/graphing_calculator_1793108043646.jpg' },
-  { name: 'Arduino Lab Kit', url: '/src/assets/images/arduino_starter_kit_1793108043062.jpg' },
-];
-
-const CATEGORIES: Exclude<Category, 'All'>[] = [
-  'Textbooks',
-  'Electronics',
-  'Dorm Essentials',
-  'Stationery',
-  'Project Equipment',
-  'Other',
+  { name: 'Calculus Textbook', url: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80' },
+  { name: 'Wireless Mouse', url: 'https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?auto=format&fit=crop&w=600&q=80' },
+  { name: 'GaN Fast Charger', url: 'https://images.unsplash.com/photo-1583863788434-e58a36330cf0?auto=format&fit=crop&w=600&q=80' },
+  { name: 'Study Desk & Chair', url: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=600&q=80' },
+  { name: 'Muji Stationery', url: 'https://images.unsplash.com/photo-1585336261026-62024dbdbffc?auto=format&fit=crop&w=600&q=80' },
+  { name: 'Varsity Jacket', url: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=600&q=80' },
+  { name: 'Badminton Racket', url: 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?auto=format&fit=crop&w=600&q=80' },
+  { name: 'Buldak Ramen', url: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=600&q=80' },
 ];
 
 const CONDITIONS: Condition[] = ['Brand New', 'Like New', 'Good', 'Fair'];
@@ -46,15 +39,13 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
-  const [category, setCategory] = useState<Exclude<Category, 'All'>>('Textbooks');
+  const [category, setCategory] = useState<MallCategory>(MALL_CATEGORIES[0]);
   const [condition, setCondition] = useState<Condition>('Like New');
   const [location, setLocation] = useState(POPULAR_CAMPUS_LOCATIONS[0]);
   const [customLocation, setCustomLocation] = useState('');
-  
-  // Authentic Photos state (multiple photos)
-  const [photos, setPhotos] = useState<string[]>([PRESET_IMAGES[0].url]);
-  const [isActualPhoto, setIsActualPhoto] = useState<boolean>(true);
-  const [sellerExplanation, setSellerExplanation] = useState('');
+  const [customImageUrl, setCustomImageUrl] = useState('');
+  const [selectedPresetImage, setSelectedPresetImage] = useState(PRESET_IMAGES[0].url);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
 
   // Validation
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
@@ -62,54 +53,47 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleMultipleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    Array.from(files).forEach((file) => {
-      if (file.size > 2 * 1024 * 1024) {
-        setErrors((prev) => ({ ...prev, image: 'Please choose images under 2MB each for fast browser storage.' }));
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotos((prev) => [...prev, reader.result as string]);
-        setIsActualPhoto(true);
-      };
-      reader.readAsDataURL(file);
-    });
+    if (file.size > 2 * 1024 * 1024) {
+      setErrors((prev) => ({ ...prev, image: 'Please select an image smaller than 2MB.' }));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setUploadedImage(reader.result as string);
+      setCustomImageUrl('');
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleRemovePhoto = (index: number) => {
-    setPhotos((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleAddPreset = (url: string) => {
-    setPhotos((prev) => (prev.includes(url) ? prev : [...prev, url]));
+  const getEffectiveImageUrl = () => {
+    if (uploadedImage) return uploadedImage;
+    if (customImageUrl.trim()) return customImageUrl.trim();
+    return selectedPresetImage;
   };
 
   const validate = () => {
     const newErrors: { [key: string]: string } = {};
 
     if (!title.trim()) {
-      newErrors.title = 'Please enter a title for your item.';
+      newErrors.title = 'Product title is required.';
     } else if (title.trim().length < 3) {
       newErrors.title = 'Title must be at least 3 characters.';
     }
 
     if (!description.trim()) {
-      newErrors.description = 'Please provide a brief description of the condition and details.';
+      newErrors.description = 'Please provide a brief description of the item.';
     }
 
     const numPrice = parseFloat(price);
     if (!price || isNaN(numPrice)) {
       newErrors.price = 'Please enter a valid price in RM.';
     } else if (numPrice < 0) {
-      newErrors.price = 'Price cannot be negative. For free items, enter 0.';
-    }
-
-    if (photos.length === 0) {
-      newErrors.photos = 'Please provide at least 1 photo of your item.';
+      newErrors.price = 'Price cannot be negative.';
     }
 
     const finalLocation = location === 'Other' ? customLocation.trim() : location;
@@ -127,321 +111,290 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
 
     setIsSubmitting(true);
     const finalLocation = location === 'Other' ? customLocation.trim() : location;
+    const finalImage = getEffectiveImageUrl();
+
+    const newListingData = {
+      title: title.trim(),
+      description: description.trim(),
+      price: parseFloat(price),
+      category,
+      condition,
+      location: finalLocation,
+      campusLocation: finalLocation,
+      imageUrl: finalImage,
+      additionalImages: [finalImage],
+      isActualPhoto: true,
+      sellerName: 'Alex Tan',
+      sellerContact: 'alex.tan@student.edu.my',
+      sellerFaculty: 'FCSIT (Year 2)',
+      isUserCreated: true,
+      status: 'Active',
+      createdAt: new Date().toISOString(),
+    };
 
     setTimeout(() => {
-      import('../services/storageService').then(({ storageService }) => {
-        const created = storageService.createListing({
-          title: title.trim(),
-          description: description.trim(),
-          price: parseFloat(price),
-          category,
-          condition,
-          location: finalLocation,
-          campusLocation: finalLocation,
-          listingType: 'Trade',
-          imageUrl: photos[0],
-          additionalImages: photos,
-          isActualPhoto,
-          sellerExplanation: sellerExplanation.trim() || undefined,
-          sellerName: 'Alex Tan (You)',
-          sellerFaculty: 'Computer Science (Year 2)',
-          sellerRating: 5.0,
-          marketAverage: Math.max(15, Math.round(parseFloat(price) * 0.9)),
-          referencePriceMin: Math.max(10, Math.round(parseFloat(price) * 0.8)),
-          referencePriceMax: Math.round(parseFloat(price) * 1.2),
-          competitors: [
-            { platform: 'Shopee', price: Math.round(parseFloat(price) * 1.1), condition: 'Brand New', matchConfidence: 'Exact' }
-          ]
-        });
-
-        setIsSubmitting(false);
-        onListingCreated(created);
-        onClose();
-      });
+      onListingCreated(newListingData);
+      setIsSubmitting(false);
+      onClose();
     }, 300);
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in-50"
+      onClick={onClose}
+    >
       <div 
-        className="relative bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh] text-left"
+        className="bg-white rounded-t-3xl sm:rounded-3xl max-w-xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200 text-left"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/60">
+        {/* Modal Header */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-xs z-10">
           <div>
-            <h3 className="text-lg font-bold text-slate-900">List an Item on CampusLoop</h3>
-            <p className="text-xs text-slate-500">
-              Pass down campus gear, upload authentic photos, and help classmates find essentials.
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <PlusCircle className="w-5 h-5 text-blue-600" />
+              <span>Sell an Item on CampusLoop</span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              List textbooks, calculators, dorm gear, or electronics for fellow students.
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Scrollable Form */}
-        <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-5">
-          
-          {/* Title */}
+        {/* Modal Form */}
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs sm:text-sm">
+          {/* Product Title */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Item Title <span className="text-rose-500">*</span>
+            <label className="block font-bold text-slate-700 mb-1">
+              Product Title *
             </label>
             <input
               type="text"
-              placeholder="e.g. Calculus: Early Transcendentals (8th Ed) or Logitech MX Master 3S"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className={`w-full px-3.5 py-2.5 text-sm bg-white rounded-lg border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
-                errors.title ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
-              }`}
+              placeholder="e.g. Stewart Calculus 8th Edition, Casio fx-570EX Calculator..."
+              className={`w-full px-3.5 py-2.5 rounded-xl border ${
+                errors.title ? 'border-rose-400 ring-1 ring-rose-200' : 'border-slate-200'
+              } text-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
             />
-            {errors.title && (
-              <p className="mt-1 text-xs text-rose-500 flex items-center gap-1">
-                <AlertCircle className="w-3.5 h-3.5" /> {errors.title}
-              </p>
-            )}
+            {errors.title && <p className="text-[11px] text-rose-500 mt-1">{errors.title}</p>}
           </div>
 
-          {/* Category & Condition */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Price & Category in 2 columns */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Price in RM */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Category <span className="text-rose-500">*</span>
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as Exclude<Category, 'All'>)}
-                className="w-full px-3.5 py-2.5 text-sm bg-white rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Condition <span className="text-rose-500">*</span>
-              </label>
-              <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-lg">
-                {CONDITIONS.map((cond) => (
-                  <button
-                    type="button"
-                    key={cond}
-                    onClick={() => setCondition(cond)}
-                    className={`py-1.5 text-xs font-medium rounded-md transition-colors ${
-                      condition === cond
-                        ? 'bg-white text-indigo-600 font-semibold shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {cond}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Price (in RM) & Pickup Location */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Price (RM) <span className="text-rose-500">*</span>
+              <label className="block font-bold text-slate-700 mb-1">
+                Price (RM) *
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-2.5 text-sm font-semibold text-slate-400">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xs sm:text-sm">
                   RM
                 </span>
                 <input
                   type="number"
                   min="0"
                   step="0.5"
-                  placeholder="45"
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
-                  className={`w-full pl-11 pr-3.5 py-2.5 text-sm bg-white rounded-lg border focus:outline-none focus:ring-2 focus:ring-indigo-500 tabular-nums ${
-                    errors.price ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
-                  }`}
+                  placeholder="0.00"
+                  className={`w-full pl-11 pr-3.5 py-2.5 rounded-xl border ${
+                    errors.price ? 'border-rose-400 ring-1 ring-rose-200' : 'border-slate-200'
+                  } text-slate-800 font-bold text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
               </div>
-              {errors.price && (
-                <p className="mt-1 text-xs text-rose-500 flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5" /> {errors.price}
-                </p>
-              )}
+              {errors.price && <p className="text-[11px] text-rose-500 mt-1">{errors.price}</p>}
             </div>
 
+            {/* Category */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Campus Pickup Location <span className="text-rose-500">*</span>
+              <label className="block font-bold text-slate-700 mb-1">
+                Category *
               </label>
               <select
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-sm bg-white rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                value={category}
+                onChange={(e) => setCategory(e.target.value as MallCategory)}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {POPULAR_CAMPUS_LOCATIONS.map((loc) => (
-                  <option key={loc} value={loc}>{loc}</option>
+                {MALL_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
                 ))}
-                <option value="Other">Other Custom Campus Spot...</option>
               </select>
-
-              {location === 'Other' && (
-                <input
-                  type="text"
-                  placeholder="e.g. Mahallah Ali Courtyard or Sports Complex"
-                  value={customLocation}
-                  onChange={(e) => setCustomLocation(e.target.value)}
-                  className="mt-2 w-full px-3.5 py-2 text-sm bg-white rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              )}
             </div>
           </div>
 
-          {/* Authentic Multi-Photo Upload Section */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">
-                  Product Photos (Authentic Photos Strongly Preferred)
-                </label>
-                <span className="text-[11px] text-slate-400">
-                  Upload multiple angles or condition close-ups from your camera or library:
-                </span>
-              </div>
+          {/* Condition */}
+          <div>
+            <label className="block font-bold text-slate-700 mb-1.5">
+              Item Condition *
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {CONDITIONS.map((cond) => (
+                <button
+                  key={cond}
+                  type="button"
+                  onClick={() => setCondition(cond)}
+                  className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                    condition === cond
+                      ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold shadow-2xs'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {cond}
+                </button>
+              ))}
+            </div>
+          </div>
 
-              {/* Photo Type Flag */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsActualPhoto(true)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors ${
-                    isActualPhoto
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                      : 'bg-slate-100 text-slate-500'
-                  }`}
-                >
-                  <Camera className="w-3 h-3" />
-                  <span>Actual Photo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsActualPhoto(false)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
-                    !isActualPhoto
-                      ? 'bg-indigo-100 text-indigo-800 border border-indigo-300'
-                      : 'bg-slate-100 text-slate-500'
-                  }`}
-                >
-                  Reference Image
-                </button>
+          {/* Product Image Selection */}
+          <div className="space-y-2">
+            <label className="block font-bold text-slate-700">
+              Product Image *
+            </label>
+
+            {/* Current Image Preview */}
+            <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-2xl border border-slate-200">
+              <div className="w-16 h-16 rounded-xl overflow-hidden bg-white border border-slate-200 shrink-0">
+                <img
+                  src={getEffectiveImageUrl()}
+                  alt="Preview"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="text-xs text-slate-600">
+                <span className="font-bold text-slate-800 block">Selected Photo</span>
+                <span className="text-[11px] text-slate-400">Choose a preset below, paste a URL, or upload from device.</span>
               </div>
             </div>
 
-            {/* Photos Strip Preview & Upload Trigger */}
-            <div className="flex items-center gap-2 overflow-x-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
-              {photos.map((url, idx) => (
-                <div key={idx} className="relative w-16 h-16 rounded-lg bg-slate-200 overflow-hidden shrink-0 group border border-slate-300">
-                  <img src={url} alt={`Upload ${idx}`} className="w-full h-full object-cover" />
+            {/* Presets */}
+            <div>
+              <span className="text-[11px] font-semibold text-slate-500 block mb-1">Quick Presets:</span>
+              <div className="grid grid-cols-4 gap-2">
+                {PRESET_IMAGES.slice(0, 4).map((p, idx) => (
                   <button
+                    key={idx}
                     type="button"
-                    onClick={() => handleRemovePhoto(idx)}
-                    className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-black/80 text-white rounded-full transition-colors opacity-90"
-                    title="Remove photo"
+                    onClick={() => {
+                      setSelectedPresetImage(p.url);
+                      setUploadedImage(null);
+                      setCustomImageUrl('');
+                    }}
+                    className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${
+                      selectedPresetImage === p.url && !uploadedImage && !customImageUrl
+                        ? 'border-blue-600 scale-102 ring-2 ring-blue-100'
+                        : 'border-slate-200 opacity-70 hover:opacity-100'
+                    }`}
                   >
-                    <X className="w-3 h-3" />
+                    <img src={p.url} alt={p.name} className="w-full h-full object-cover" />
                   </button>
-                  {idx === 0 && (
-                    <span className="absolute bottom-0 inset-x-0 bg-indigo-600/90 text-white text-[9px] text-center font-bold">
-                      Cover
-                    </span>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
 
-              {/* Upload Button */}
-              <label className="w-16 h-16 rounded-lg border-2 border-dashed border-slate-300 hover:border-indigo-500 hover:bg-indigo-50/50 flex flex-col items-center justify-center cursor-pointer transition-colors shrink-0">
-                <Camera className="w-5 h-5 text-indigo-600" />
-                <span className="text-[9px] font-bold text-slate-600 mt-0.5">+ Add Photo</span>
+            {/* File Upload / Image URL */}
+            <div className="flex items-center gap-2 pt-1">
+              <label className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer flex items-center gap-1.5 shrink-0">
+                <Upload className="w-3.5 h-3.5 text-blue-600" />
+                <span>Upload File</span>
                 <input
                   type="file"
-                  multiple
                   accept="image/*"
-                  onChange={handleMultipleFiles}
+                  onChange={handleFileUpload}
                   className="hidden"
                 />
               </label>
-            </div>
 
-            {/* Preset quick picks */}
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 pt-1">
-              <span>Or choose preset sample photography:</span>
-              {PRESET_IMAGES.slice(0, 3).map((p) => (
-                <button
-                  type="button"
-                  key={p.name}
-                  onClick={() => handleAddPreset(p.url)}
-                  className="text-indigo-600 hover:underline font-medium text-[11px]"
-                >
-                  +{p.name.split(' ')[0]}
-                </button>
-              ))}
+              <input
+                type="text"
+                value={customImageUrl}
+                onChange={(e) => {
+                  setCustomImageUrl(e.target.value);
+                  setUploadedImage(null);
+                }}
+                placeholder="Or paste image URL..."
+                className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800"
+              />
             </div>
+            {errors.image && <p className="text-[11px] text-rose-500">{errors.image}</p>}
           </div>
 
-          {/* Price Explanation / Value Justification */}
+          {/* Campus Pickup Location */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Specification or Price Reason (Optional)
+            <label className="block font-bold text-slate-700 mb-1">
+              Campus Handover Location *
             </label>
-            <input
-              type="text"
-              placeholder="e.g. Includes past exam solutions binder (RM25 value), or brand new replacement batteries"
-              value={sellerExplanation}
-              onChange={(e) => setSellerExplanation(e.target.value)}
-              className="w-full px-3.5 py-2 text-xs bg-white rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <span className="text-[11px] text-slate-400 mt-1 block">
-              Explains to buyers why your price is fair if it includes bundled accessories or rare textbooks.
-            </span>
+            <select
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {POPULAR_CAMPUS_LOCATIONS.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
+              ))}
+            </select>
           </div>
+
+          {location === 'Other' && (
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                Specify Location *
+              </label>
+              <input
+                type="text"
+                required
+                value={customLocation}
+                onChange={(e) => setCustomLocation(e.target.value)}
+                placeholder="e.g. Faculty of Economics Foyer"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm"
+              />
+            </div>
+          )}
 
           {/* Description */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Item Details & Condition Notes <span className="text-rose-500">*</span>
+            <label className="block font-bold text-slate-700 mb-1">
+              Description & Highlights *
             </label>
             <textarea
               rows={3}
-              placeholder="Describe condition, course code it was used for, included accessories, or reason for selling..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className={`w-full px-3.5 py-2.5 text-sm bg-white rounded-lg border focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
-                errors.description ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
-              }`}
+              placeholder="Describe condition, include what's bundled, reasons for selling, and when you are free to meet up on campus..."
+              className={`w-full px-3.5 py-2 rounded-xl border ${
+                errors.description ? 'border-rose-400 ring-1 ring-rose-200' : 'border-slate-200'
+              } text-slate-800 text-xs sm:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500`}
             />
+            {errors.description && <p className="text-[11px] text-rose-500 mt-1">{errors.description}</p>}
           </div>
 
           {/* Form Actions */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm shadow-indigo-100 transition-all disabled:opacity-50"
+              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs shadow-md shadow-blue-200 flex items-center gap-1.5 cursor-pointer"
             >
-              {isSubmitting ? 'Publishing Listing...' : 'Publish Listing'}
+              <Check className="w-4 h-4" />
+              <span>{isSubmitting ? 'Publishing...' : 'Publish Listing'}</span>
             </button>
           </div>
         </form>

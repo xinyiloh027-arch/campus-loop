@@ -21,7 +21,12 @@ import {
   UserRole,
   SavingsGoal,
   CampusNotification,
-  BorrowRequest
+  BorrowRequest,
+  CartItem,
+  RentalItem,
+  RentalRequest,
+  RentalStatus,
+  DepositStatus
 } from '../types';
 
 import { 
@@ -30,16 +35,19 @@ import {
   INITIAL_USER_PROFILE, 
   INITIAL_REVIEWS, 
   INITIAL_CHAT_CONVERSATIONS, 
-  INITIAL_VIRTUAL_PET, 
-  INITIAL_BUDGET_SETTINGS, 
-  INITIAL_BUDGET_TRANSACTIONS 
+  INITIAL_CART,
+  INITIAL_RENTAL_ITEMS,
+  INITIAL_RENTAL_REQUESTS
 } from '../data/mockData';
 
-const LISTINGS_KEY = 'campusloop_listings_v3';
-const REQUESTS_KEY = 'campusloop_trade_requests_v3';
-const PROFILE_KEY = 'campusloop_user_profile_v3';
-const REVIEWS_KEY = 'campusloop_reviews_v3';
-const CHATS_KEY = 'campusloop_chats_v3';
+const LISTINGS_KEY = 'campusloop_listings_v4';
+const REQUESTS_KEY = 'campusloop_trade_requests_v4';
+const PROFILE_KEY = 'campusloop_user_profile_v4';
+const REVIEWS_KEY = 'campusloop_reviews_v4';
+const CHATS_KEY = 'campusloop_chats_v4';
+const CART_KEY = 'campusloop_cart_v4';
+const RENTAL_ITEMS_KEY = 'campusloop_rental_items_v1';
+const RENTAL_REQUESTS_KEY = 'campusloop_rental_requests_v1';
 const PET_KEY = 'campusloop_virtual_pet_v3';
 const BUDGET_TX_KEY = 'campusloop_budget_transactions_v3';
 const BUDGET_SETTINGS_KEY = 'campusloop_budget_settings_v3';
@@ -358,57 +366,409 @@ export const storageService = {
     return updated;
   },
 
-  // --- VIRTUAL PET ---
+  // --- PET & GOALS HELPERS (COMPATIBILITY) ---
   getVirtualPet(): VirtualPet {
     try {
       const stored = localStorage.getItem(PET_KEY);
       if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.warn('Could not read virtual pet:', e);
-    }
+    } catch {}
     const defaultPet: VirtualPet = {
-      ...INITIAL_VIRTUAL_PET,
       name: 'Mochi',
       type: 'kitten',
       petType: 'kitten',
       mood: 'happy',
+      hunger: 80,
+      energy: 80,
+      happiness: 90,
+      level: 1,
+      exp: 10,
       accessory: 'grad_cap',
+      lastFed: 'Recently',
+      lastPlayed: 'Recently',
+      achievements: []
     };
-    localStorage.setItem(PET_KEY, JSON.stringify(defaultPet));
     return defaultPet;
   },
 
   updateVirtualPet(pet: VirtualPet): VirtualPet {
     try {
       localStorage.setItem(PET_KEY, JSON.stringify(pet));
-    } catch (e) {
-      console.error('Failed to save virtual pet:', e);
-    }
+    } catch {}
     return pet;
   },
 
-  // --- SAVINGS GOALS (POCKET GARDEN) ---
   getSavingsGoals(): SavingsGoal[] {
     try {
       const stored = localStorage.getItem(SAVINGS_KEY);
       if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.warn('Could not read savings goals:', e);
-    }
-    localStorage.setItem(SAVINGS_KEY, JSON.stringify(INITIAL_SAVINGS_GOALS));
-    return INITIAL_SAVINGS_GOALS;
+    } catch {}
+    return [];
   },
 
   saveSavingsGoals(goals: SavingsGoal[]): SavingsGoal[] {
     try {
       localStorage.setItem(SAVINGS_KEY, JSON.stringify(goals));
-    } catch (e) {
-      console.error('Failed to save savings goals:', e);
-    }
+    } catch {}
     return goals;
   },
 
-  // --- NOTIFICATIONS ---
+  // --- CART MANAGEMENT ---
+  getCart(): CartItem[] {
+    try {
+      const stored = localStorage.getItem(CART_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.warn('Could not read cart:', e);
+    }
+    try {
+      localStorage.setItem(CART_KEY, JSON.stringify(INITIAL_CART));
+    } catch {}
+    return INITIAL_CART;
+  },
+
+  saveCart(cart: CartItem[]): CartItem[] {
+    try {
+      localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    } catch (e) {
+      console.error('Failed to save cart:', e);
+    }
+    return cart;
+  },
+
+  addToCart(listing: Listing, quantity = 1): CartItem[] {
+    const cart = this.getCart();
+    const existingIndex = cart.findIndex((i) => i.listingId === listing.id);
+    let updated: CartItem[];
+    if (existingIndex > -1) {
+      updated = cart.map((item, idx) => 
+        idx === existingIndex 
+          ? { ...item, quantity: item.quantity + quantity, selected: true }
+          : item
+      );
+    } else {
+      const newItem: CartItem = {
+        id: `cart-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        listingId: listing.id,
+        listing,
+        quantity,
+        selected: true,
+        addedAt: new Date().toISOString()
+      };
+      updated = [newItem, ...cart];
+    }
+    return this.saveCart(updated);
+  },
+
+  removeFromCart(listingId: string): CartItem[] {
+    const cart = this.getCart();
+    const updated = cart.filter((i) => i.listingId !== listingId);
+    return this.saveCart(updated);
+  },
+
+  updateCartQuantity(listingId: string, quantity: number): CartItem[] {
+    const cart = this.getCart();
+    if (quantity <= 0) {
+      return this.removeFromCart(listingId);
+    }
+    const updated = cart.map((i) => (i.listingId === listingId ? { ...i, quantity } : i));
+    return this.saveCart(updated);
+  },
+
+  toggleSelectCartItem(listingId: string): CartItem[] {
+    const cart = this.getCart();
+    const updated = cart.map((i) => (i.listingId === listingId ? { ...i, selected: !i.selected } : i));
+    return this.saveCart(updated);
+  },
+
+  selectAllCartItems(selected: boolean): CartItem[] {
+    const cart = this.getCart();
+    const updated = cart.map((i) => ({ ...i, selected }));
+    return this.saveCart(updated);
+  },
+
+  clearSelectedCartItems(): CartItem[] {
+    const cart = this.getCart();
+    const updated = cart.filter((i) => !i.selected);
+    return this.saveCart(updated);
+  },
+
+  clearCart(): CartItem[] {
+    return this.saveCart([]);
+  },
+
+  // --- RENTAL ITEMS MANAGEMENT ---
+  getRentalItems(): RentalItem[] {
+    try {
+      const stored = localStorage.getItem(RENTAL_ITEMS_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.warn('Could not read rental items:', e);
+    }
+    try {
+      localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(INITIAL_RENTAL_ITEMS));
+    } catch {}
+    return INITIAL_RENTAL_ITEMS;
+  },
+
+  saveRentalItems(items: RentalItem[]): RentalItem[] {
+    try {
+      localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(items));
+    } catch (e) {
+      console.error('Failed to save rental items:', e);
+    }
+    return items;
+  },
+
+  createRentalItem(itemData: Omit<RentalItem, 'id' | 'createdAt'>): RentalItem {
+    const items = this.getRentalItems();
+    const newItem: RentalItem = {
+      ...itemData,
+      id: `rent-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [newItem, ...items];
+    this.saveRentalItems(updated);
+    return newItem;
+  },
+
+  updateRentalItem(id: string, updates: Partial<RentalItem>): RentalItem | null {
+    const items = this.getRentalItems();
+    let updatedItem: RentalItem | null = null;
+    const updated = items.map((item) => {
+      if (item.id === id) {
+        updatedItem = { ...item, ...updates };
+        return updatedItem;
+      }
+      return item;
+    });
+    if (updatedItem) {
+      this.saveRentalItems(updated);
+    }
+    return updatedItem;
+  },
+
+  deleteRentalItem(id: string): void {
+    const items = this.getRentalItems();
+    const updated = items.filter((item) => item.id !== id);
+    this.saveRentalItems(updated);
+  },
+
+  // --- RENTAL REQUESTS & WORKFLOW ---
+  getRentalRequests(): RentalRequest[] {
+    try {
+      const stored = localStorage.getItem(RENTAL_REQUESTS_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.warn('Could not read rental requests:', e);
+    }
+    try {
+      localStorage.setItem(RENTAL_REQUESTS_KEY, JSON.stringify(INITIAL_RENTAL_REQUESTS));
+    } catch {}
+    return INITIAL_RENTAL_REQUESTS;
+  },
+
+  saveRentalRequests(requests: RentalRequest[]): RentalRequest[] {
+    try {
+      localStorage.setItem(RENTAL_REQUESTS_KEY, JSON.stringify(requests));
+    } catch (e) {
+      console.error('Failed to save rental requests:', e);
+    }
+    return requests;
+  },
+
+  // Check overlapping approved/active rental bookings for the same item and dates
+  checkRentalOverlap(rentalItemId: string, startDate: string, returnDate: string, excludeRequestId?: string): boolean {
+    const requests = this.getRentalRequests();
+    const activeBlockingStatuses: RentalStatus[] = [
+      'Approved',
+      'Ready for Handover',
+      'Rented Out',
+      'Return Pending',
+      'Inspection Pending'
+    ];
+
+    const targetStart = new Date(startDate).getTime();
+    const targetReturn = new Date(returnDate).getTime();
+
+    return requests.some((req) => {
+      if (req.rentalItemId !== rentalItemId) return false;
+      if (excludeRequestId && req.id === excludeRequestId) return false;
+      if (!activeBlockingStatuses.includes(req.status)) return false;
+
+      const reqStart = new Date(req.startDate).getTime();
+      const reqReturn = new Date(req.returnDate).getTime();
+
+      // Check if [targetStart, targetReturn] overlaps with [reqStart, reqReturn]
+      return targetStart <= reqReturn && targetReturn >= reqStart;
+    });
+  },
+
+  createRentalRequest(requestData: Omit<RentalRequest, 'id' | 'createdAt' | 'updatedAt'>): RentalRequest {
+    const requests = this.getRentalRequests();
+    const newReq: RentalRequest = {
+      ...requestData,
+      id: `rental-req-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const updated = [newReq, ...requests];
+    this.saveRentalRequests(updated);
+
+    // Create notification for owner
+    this.addCampusNotification(
+      'New Rental Request!',
+      `${newReq.renterName} requested to rent "${newReq.rentalItemName}" from ${newReq.startDate} to ${newReq.returnDate}.`,
+      'rental_request',
+      'rent',
+      newReq.id
+    );
+
+    return newReq;
+  },
+
+  updateRentalRequestStatus(id: string, status: RentalStatus, extraData?: Partial<RentalRequest>): RentalRequest | null {
+    const requests = this.getRentalRequests();
+    let updatedReq: RentalRequest | null = null;
+    const now = new Date().toISOString();
+
+    const updated = requests.map((req) => {
+      if (req.id === id) {
+        updatedReq = {
+          ...req,
+          status,
+          updatedAt: now,
+          ...(extraData || {}),
+        };
+
+        // If status transitions to Approved, mark item availability if needed
+        if (status === 'Approved' || status === 'Rented Out') {
+          this.updateRentalItem(req.rentalItemId, { isAvailable: false });
+        } else if (status === 'Completed' || status === 'Rejected' || status === 'Cancelled') {
+          // If no other active booking, set item back to available
+          const hasOtherActive = this.getRentalRequests().some(
+            (other) => other.id !== id && other.rentalItemId === req.rentalItemId && 
+              ['Approved', 'Rented Out', 'Ready for Handover', 'Return Pending'].includes(other.status)
+          );
+          if (!hasOtherActive) {
+            this.updateRentalItem(req.rentalItemId, { isAvailable: true });
+          }
+        }
+
+        return updatedReq;
+      }
+      return req;
+    });
+
+    if (updatedReq) {
+      this.saveRentalRequests(updated);
+
+      // Notification triggers based on status
+      if (status === 'Approved') {
+        this.addCampusNotification(
+          'Rental Request Approved!',
+          `Your rental request for "${(updatedReq as RentalRequest).rentalItemName}" was approved. Please arrange handover.`,
+          'rental_approved',
+          'rent',
+          id
+        );
+      } else if (status === 'Rejected') {
+        this.addCampusNotification(
+          'Rental Request Declined',
+          `Your rental request for "${(updatedReq as RentalRequest).rentalItemName}" was declined by the owner.`,
+          'rental_rejected',
+          'rent',
+          id
+        );
+      }
+    }
+    return updatedReq;
+  },
+
+  // Record item condition at campus handover
+  recordHandoverCondition(id: string, notes: string): RentalRequest | null {
+    return this.updateRentalRequestStatus(id, 'Rented Out', {
+      depositStatus: 'Paid',
+      handoverConditionNotes: notes,
+      handoverConfirmedAt: new Date().toISOString(),
+    });
+  },
+
+  // Renter reports return
+  confirmRenterReturn(id: string): RentalRequest | null {
+    return this.updateRentalRequestStatus(id, 'Inspection Pending', {
+      returnReportedAt: new Date().toISOString(),
+    });
+  },
+
+  // Owner inspects returned item
+  recordReturnInspection(
+    id: string, 
+    returnNotes: string, 
+    passed: boolean, 
+    proposedDeduction = 0, 
+    deductionReason?: string
+  ): RentalRequest | null {
+    if (passed) {
+      // Inspection passed: full deposit refund approved
+      return this.updateRentalRequestStatus(id, 'Refund Pending', {
+        inspectionPassed: true,
+        returnConditionNotes: returnNotes,
+        proposedDeduction: 0,
+        refundAmount: undefined, // will be approved next
+      });
+    } else {
+      // Damage or missing items reported: initiate Dispute flow
+      const updated = this.updateRentalRequestStatus(id, 'Dispute', {
+        depositStatus: 'Dispute',
+        inspectionPassed: false,
+        returnConditionNotes: returnNotes,
+        proposedDeduction,
+        deductionReason: deductionReason || 'Condition damage or missing accessories',
+        disputeNotes: `Owner reported issue: "${deductionReason}". Proposed deduction: RM ${proposedDeduction}.`,
+      });
+
+      this.addCampusNotification(
+        'Rental Inspection Dispute',
+        `A deduction of RM ${proposedDeduction} was proposed for "${updated?.rentalItemName}". Please review the inspection notes.`,
+        'rental_dispute',
+        'rent',
+        id
+      );
+
+      return updated;
+    }
+  },
+
+  // Renter and Owner resolve dispute
+  resolveDispute(id: string, agreedRefundAmount: number, disputeNotes: string, renterResponse?: string): RentalRequest | null {
+    return this.updateRentalRequestStatus(id, 'Refund Pending', {
+      depositStatus: 'Refund Pending',
+      refundAmount: agreedRefundAmount,
+      disputeNotes,
+      renterDisputeResponse: renterResponse,
+    });
+  },
+
+  // Owner approves deposit refund
+  approveDepositRefund(id: string, refundAmount: number): RentalRequest | null {
+    const updated = this.updateRentalRequestStatus(id, 'Completed', {
+      depositStatus: 'Refunded',
+      refundAmount,
+      refundDate: new Date().toISOString(),
+    });
+
+    this.addCampusNotification(
+      'Deposit Refund Approved! 💸',
+      `Deposit refund of RM ${refundAmount.toFixed(2)} has been recorded for "${updated?.rentalItemName}".`,
+      'rental_refunded',
+      'me',
+      id
+    );
+
+    return updated;
+  },
+
+  // --- NOTIFICATIONS MANAGEMENT ---
   getNotifications(): CampusNotification[] {
     try {
       const stored = localStorage.getItem(NOTIFICATIONS_KEY);
@@ -416,7 +776,9 @@ export const storageService = {
     } catch (e) {
       console.warn('Could not read notifications:', e);
     }
-    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(INITIAL_NOTIFICATIONS));
+    try {
+      localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(INITIAL_NOTIFICATIONS));
+    } catch {}
     return INITIAL_NOTIFICATIONS;
   },
 
@@ -429,62 +791,48 @@ export const storageService = {
     return notifs;
   },
 
-  // --- BUDGET & FINANCE ---
-  getBudgetTransactions(): BudgetTransaction[] {
-    try {
-      const stored = localStorage.getItem(BUDGET_TX_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.warn('Could not read budget transactions:', e);
-    }
-    localStorage.setItem(BUDGET_TX_KEY, JSON.stringify(INITIAL_BUDGET_TRANSACTIONS));
-    return INITIAL_BUDGET_TRANSACTIONS;
+  markNotificationAsRead(id: string): CampusNotification[] {
+    const notifs = this.getNotifications();
+    const updated = notifs.map((n) =>
+      n.id === id ? { ...n, isRead: true, read: true } : n
+    );
+    return this.saveNotifications(updated);
   },
 
-  addBudgetTransaction(tx: Omit<BudgetTransaction, 'id'>): BudgetTransaction {
-    const current = this.getBudgetTransactions();
-    const newTx: BudgetTransaction = {
-      ...tx,
-      id: `tx-${Date.now()}`,
+  markAllNotificationsAsRead(): CampusNotification[] {
+    const notifs = this.getNotifications();
+    const updated = notifs.map((n) => ({ ...n, isRead: true, read: true }));
+    return this.saveNotifications(updated);
+  },
+
+  clearAllNotifications(): CampusNotification[] {
+    return this.saveNotifications([]);
+  },
+
+  // Notification helper
+  addCampusNotification(
+    title: string, 
+    message: string, 
+    type: any, 
+    linkTab = 'rent',
+    relatedRentalId?: string
+  ): CampusNotification {
+    const notifs = this.getNotifications();
+    const newNotif: CampusNotification = {
+      id: `notif-${Date.now()}`,
+      title,
+      message,
+      type,
+      isRead: false,
+      read: false,
+      createdAt: 'Just now',
+      timestamp: 'Just now',
+      linkTab,
+      relatedRentalId,
     };
-    const updated = [newTx, ...current];
-    try {
-      localStorage.setItem(BUDGET_TX_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save transaction:', e);
-    }
-    return newTx;
-  },
-
-  deleteBudgetTransaction(txId: string): BudgetTransaction[] {
-    const current = this.getBudgetTransactions();
-    const updated = current.filter(t => t.id !== txId);
-    try {
-      localStorage.setItem(BUDGET_TX_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to delete transaction:', e);
-    }
-    return updated;
-  },
-
-  getBudgetSettings(): BudgetSettings {
-    try {
-      const stored = localStorage.getItem(BUDGET_SETTINGS_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.warn('Could not read budget settings:', e);
-    }
-    localStorage.setItem(BUDGET_SETTINGS_KEY, JSON.stringify(INITIAL_BUDGET_SETTINGS));
-    return INITIAL_BUDGET_SETTINGS;
-  },
-
-  updateBudgetSettings(settings: BudgetSettings): BudgetSettings {
-    try {
-      localStorage.setItem(BUDGET_SETTINGS_KEY, JSON.stringify(settings));
-    } catch (e) {
-      console.error('Failed to save budget settings:', e);
-    }
-    return settings;
+    const updated = [newNotif, ...notifs];
+    this.saveNotifications(updated);
+    return newNotif;
   },
 
   // --- PROTOTYPE RESET ---
@@ -494,22 +842,18 @@ export const storageService = {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(INITIAL_USER_PROFILE));
     localStorage.setItem(REVIEWS_KEY, JSON.stringify(INITIAL_REVIEWS));
     localStorage.setItem(CHATS_KEY, JSON.stringify(INITIAL_CHAT_CONVERSATIONS));
-    localStorage.setItem(PET_KEY, JSON.stringify(INITIAL_VIRTUAL_PET));
-    localStorage.setItem(BUDGET_TX_KEY, JSON.stringify(INITIAL_BUDGET_TRANSACTIONS));
-    localStorage.setItem(BUDGET_SETTINGS_KEY, JSON.stringify(INITIAL_BUDGET_SETTINGS));
-    localStorage.setItem(SAVINGS_KEY, JSON.stringify(INITIAL_SAVINGS_GOALS));
-    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(INITIAL_NOTIFICATIONS));
+    localStorage.setItem(CART_KEY, JSON.stringify(INITIAL_CART));
+    localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(INITIAL_RENTAL_ITEMS));
+    localStorage.setItem(RENTAL_REQUESTS_KEY, JSON.stringify(INITIAL_RENTAL_REQUESTS));
     return {
       listings: INITIAL_LISTINGS,
       requests: INITIAL_TRADE_REQUESTS,
       profile: INITIAL_USER_PROFILE,
       reviews: INITIAL_REVIEWS,
       chats: INITIAL_CHAT_CONVERSATIONS,
-      pet: INITIAL_VIRTUAL_PET,
-      transactions: INITIAL_BUDGET_TRANSACTIONS,
-      budgetSettings: INITIAL_BUDGET_SETTINGS,
-      savingsGoals: INITIAL_SAVINGS_GOALS,
-      notifications: INITIAL_NOTIFICATIONS,
+      cart: INITIAL_CART,
+      rentalItems: INITIAL_RENTAL_ITEMS,
+      rentalRequests: INITIAL_RENTAL_REQUESTS,
     };
   }
 };

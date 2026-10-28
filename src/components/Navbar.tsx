@@ -1,446 +1,363 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
+  Home, 
+  ShoppingCart, 
+  Store, 
+  Repeat, 
+  MessageSquare, 
+  User, 
   ShoppingBag, 
   PlusCircle, 
-  Compass, 
-  ArrowLeftRight, 
-  MessageSquare, 
-  TrendingDown, 
-  Wallet, 
-  Gamepad2, 
-  User, 
-  Menu, 
-  X,
-  Sparkles,
-  ShieldCheck,
-  ChevronDown,
   Bell,
-  RefreshCw,
-  HelpCircle,
-  Gift,
-  BookOpen
+  ShieldCheck,
+  Clock,
+  AlertTriangle,
+  LogOut
 } from 'lucide-react';
-import { UserRole } from '../types';
+import { AccountState, UTMUser } from '../types';
 
-export type NavTab = 
-  | 'home' 
-  | 'explore'
-  | 'borrow'
-  | 'wanted'
-  | 'free'
-  | 'pricing' 
-  | 'budget' 
-  | 'games' 
-  | 'chat'
-  | 'my-requests' 
-  | 'my-listings' 
-  | 'profile';
+export type NavTab = 'home' | 'cart' | 'mall' | 'rent' | 'chat' | 'me';
 
 interface NavbarProps {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
   openCreateModal: () => void;
-  pendingRequestsCount: number;
+  openCreateRentalModal?: () => void;
+  cartCount: number;
   unreadChatCount: number;
-  unreadNotificationsCount: number;
-  onOpenNotifications: () => void;
-  onOpenEditionChecker: () => void;
-  userRole: UserRole;
-  onRoleChange: (role: UserRole) => void;
+  unreadNotificationsCount?: number;
+  onOpenNotifications?: () => void;
+  accountState?: AccountState;
+  currentUser?: UTMUser | null;
+  onOpenAuthModal?: () => void;
+  onSignOut?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
   openCreateModal,
-  pendingRequestsCount,
+  openCreateRentalModal,
+  cartCount,
   unreadChatCount,
-  unreadNotificationsCount,
+  unreadNotificationsCount = 0,
   onOpenNotifications,
-  onOpenEditionChecker,
-  userRole,
-  onRoleChange,
+  accountState = 'Signed Out',
+  currentUser,
+  onOpenAuthModal,
+  onSignOut,
 }) => {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
-
   const handleNavClick = (tab: NavTab) => {
     setActiveTab(tab);
-    setMobileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const roleLabels: Record<UserRole, { label: string; desc: string; color: string }> = {
-    buyer: { label: 'Buyer', desc: 'Browse & Trade', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    seller: { label: 'Seller', desc: 'Manage Listings', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-    both: { label: 'Buyer & Seller', desc: 'Full Access', color: 'bg-purple-50 text-purple-700 border-purple-200' },
-  };
-
-  const canSell = userRole === 'seller' || userRole === 'both';
-
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-3">
-          
-          {/* Brand Wordmark */}
-          <div className="flex items-center gap-3">
-            <button 
+    <>
+      {/* Top Header for Desktop & Mobile */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="flex items-center justify-between h-15 gap-3">
+            
+            {/* CampusLoop Logo */}
+            <button
+              type="button"
               onClick={() => handleNavClick('home')}
-              className="flex items-center gap-2.5 text-left group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg shrink-0"
+              className="flex items-center gap-2.5 text-left group focus:outline-none"
             >
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-sky-600 to-indigo-400 flex items-center justify-center text-white shadow-sm shadow-indigo-100 group-hover:scale-105 transition-transform duration-200">
+              <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-sm shadow-blue-200 group-hover:scale-105 transition-transform">
                 <ShoppingBag className="w-5 h-5" />
               </div>
               <div className="flex flex-col">
-                <span className="text-lg font-bold tracking-tight text-slate-900 group-hover:text-indigo-600 transition-colors">
-                  Campus<span className="text-indigo-600">Loop</span>
-                </span>
-                <span className="text-[10px] text-slate-400 font-medium -mt-1 hidden sm:block">
-                  University Lifestyle Hub
+                <div className="flex items-center gap-1.5">
+                  <span className="text-lg font-extrabold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors">
+                    Campus<span className="text-blue-600">Loop</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded-md">
+                    UTM
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-medium -mt-0.5 hidden sm:block">
+                  Universiti Teknologi Malaysia Student Marketplace
                 </span>
               </div>
             </button>
 
-            {/* Role Switcher Pill */}
-            <div className="relative hidden md:block">
+            {/* Desktop Navigation Links (6 Tabs in exact order) */}
+            <nav className="hidden md:flex items-center gap-1 text-xs font-semibold">
               <button
                 type="button"
-                onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${roleLabels[userRole].color} transition-all hover:shadow-2xs`}
-                title="Switch mode without creating another account"
+                onClick={() => handleNavClick('home')}
+                className={`px-3 py-2 rounded-xl transition-all ${
+                  activeTab === 'home'
+                    ? 'bg-blue-50 text-blue-700 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                <span>Mode: {roleLabels[userRole].label}</span>
-                <ChevronDown className="w-3 h-3 opacity-60" />
+                Home
               </button>
 
-              {roleDropdownOpen && (
-                <div className="absolute left-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in-50 zoom-in-95">
-                  <div className="px-3 py-2 border-b border-slate-100">
-                    <p className="text-xs font-bold text-slate-900">Flexible Campus Roles</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Switch mode anytime seamlessly</p>
-                  </div>
-                  <div className="space-y-1 mt-1">
-                    {(['buyer', 'seller', 'both'] as UserRole[]).map((r) => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => {
-                          onRoleChange(r);
-                          setRoleDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-colors ${
-                          userRole === r ? 'bg-indigo-50 font-bold text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
-                        }`}
-                      >
-                        <div>
-                          <div className="capitalize">{r === 'both' ? 'Buyer & Seller (Both)' : `${r} Mode`}</div>
-                          <div className="text-[10px] text-slate-400 font-normal">{roleLabels[r].desc}</div>
-                        </div>
-                        {userRole === r && <ShieldCheck className="w-4 h-4 text-indigo-600" />}
-                      </button>
-                    ))}
-                  </div>
+              <button
+                type="button"
+                onClick={() => handleNavClick('cart')}
+                className={`px-3 py-2 rounded-xl transition-all relative flex items-center gap-1.5 ${
+                  activeTab === 'cart'
+                    ? 'bg-blue-50 text-blue-700 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <span>Cart</span>
+                {cartCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[10px] font-bold">
+                    {cartCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('mall')}
+                className={`px-3 py-2 rounded-xl transition-all ${
+                  activeTab === 'mall'
+                    ? 'bg-blue-50 text-blue-700 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                Mall
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('rent')}
+                className={`px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activeTab === 'rent'
+                    ? 'bg-blue-50 text-blue-700 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Repeat className="w-3.5 h-3.5" />
+                <span>Rent</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('chat')}
+                className={`px-3 py-2 rounded-xl transition-all relative flex items-center gap-1.5 ${
+                  activeTab === 'chat'
+                    ? 'bg-blue-50 text-blue-700 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <span>Chat</span>
+                {unreadChatCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[10px] font-bold">
+                    {unreadChatCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('me')}
+                className={`px-3 py-2 rounded-xl transition-all ${
+                  activeTab === 'me'
+                    ? 'bg-blue-50 text-blue-700 font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                Me
+              </button>
+            </nav>
+
+            {/* Actions: UTM Account Status, Notifications, Sell/Rent Buttons */}
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              
+              {/* UTM Authentication Status Badge */}
+              {currentUser && accountState === 'Verified UTM Member' ? (
+                <div 
+                  onClick={() => handleNavClick('me')}
+                  className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold cursor-pointer hover:bg-emerald-100 transition-colors"
+                  title={`Signed in as ${currentUser.name} (${currentUser.email})`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="truncate max-w-[130px]">{currentUser.name.split(' ')[0]} (UTM Verified)</span>
                 </div>
+              ) : currentUser && accountState === 'Email Verification Pending' ? (
+                <button
+                  type="button"
+                  onClick={onOpenAuthModal}
+                  className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold hover:bg-amber-100 transition-colors"
+                  title="Click to complete UTM email verification"
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Verify Email</span>
+                </button>
+              ) : currentUser && accountState === 'Suspended' ? (
+                <div 
+                  className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 text-xs font-bold"
+                  title="Account is suspended"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Suspended</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onOpenAuthModal}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors border border-blue-200"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>UTM Sign In</span>
+                </button>
+              )}
+
+              {/* Notification Bell */}
+              {onOpenNotifications && (
+                <button
+                  type="button"
+                  onClick={onOpenNotifications}
+                  className="relative p-2 rounded-xl text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors"
+                  title="View campus notifications"
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadNotificationsCount > 0 && (
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
+                      {unreadNotificationsCount}
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {/* Action Buttons */}
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all"
+                title="Sell an item"
+              >
+                <PlusCircle className="w-3.5 h-3.5 text-slate-500" />
+                <span>Sell</span>
+              </button>
+
+              {openCreateRentalModal && (
+                <button
+                  type="button"
+                  onClick={openCreateRentalModal}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-bold shadow-sm shadow-blue-200 transition-all cursor-pointer"
+                  title="List an item for rent"
+                >
+                  <Repeat className="w-3.5 h-3.5" />
+                  <span>List for Rent</span>
+                </button>
               )}
             </div>
+
           </div>
+        </div>
+      </header>
 
-          {/* Desktop Navigation Links */}
-          <nav className="hidden lg:flex items-center gap-1">
-            <button
-              onClick={() => handleNavClick('home')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                activeTab === 'home'
-                  ? 'bg-indigo-50 text-indigo-600 font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              Marketplace
-            </button>
+      {/* Mobile Fixed Bottom Navigation Bar (Exact 6 tabs: Home, Cart, Mall, Rent, Chat, Me) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg">
+        <div className="grid grid-cols-6 h-15.5 px-1 py-1">
+          {/* TAB 1: HOME */}
+          <button
+            type="button"
+            onClick={() => handleNavClick('home')}
+            className={`flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all ${
+              activeTab === 'home'
+                ? 'text-blue-600 font-extrabold'
+                : 'text-slate-500 hover:text-slate-800 font-medium'
+            }`}
+          >
+            <Home className="w-5 h-5" />
+            <span className="text-[10px] tracking-tight">Home</span>
+          </button>
 
-            <button
-              onClick={() => handleNavClick('borrow')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeTab === 'borrow'
-                  ? 'bg-teal-50 text-teal-700 font-bold'
-                  : 'text-slate-600 hover:text-teal-700 hover:bg-teal-50/50'
-              }`}
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-teal-600" />
-              <span>Borrow</span>
-            </button>
+          {/* TAB 2: CART */}
+          <button
+            type="button"
+            onClick={() => handleNavClick('cart')}
+            className={`flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all relative ${
+              activeTab === 'cart'
+                ? 'text-blue-600 font-extrabold'
+                : 'text-slate-500 hover:text-slate-800 font-medium'
+            }`}
+          >
+            <div className="relative">
+              <ShoppingCart className="w-5 h-5" />
+              {cartCount > 0 && (
+                <span className="absolute -top-1 -right-2.5 px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[9px] font-bold">
+                  {cartCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] tracking-tight">Cart</span>
+          </button>
 
-            <button
-              onClick={() => handleNavClick('wanted')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeTab === 'wanted'
-                  ? 'bg-amber-50 text-amber-800 font-bold'
-                  : 'text-slate-600 hover:text-amber-800 hover:bg-amber-50/50'
-              }`}
-            >
-              <HelpCircle className="w-3.5 h-3.5 text-amber-600" />
-              <span>Wanted</span>
-            </button>
+          {/* TAB 3: MALL */}
+          <button
+            type="button"
+            onClick={() => handleNavClick('mall')}
+            className={`flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all ${
+              activeTab === 'mall'
+                ? 'text-blue-600 font-extrabold'
+                : 'text-slate-500 hover:text-slate-800 font-medium'
+            }`}
+          >
+            <Store className="w-5 h-5" />
+            <span className="text-[10px] tracking-tight">Mall</span>
+          </button>
 
-            <button
-              onClick={() => handleNavClick('free')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeTab === 'free'
-                  ? 'bg-emerald-50 text-emerald-700 font-bold'
-                  : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50'
-              }`}
-            >
-              <Gift className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Free</span>
-            </button>
+          {/* TAB 4: RENT */}
+          <button
+            type="button"
+            onClick={() => handleNavClick('rent')}
+            className={`flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all ${
+              activeTab === 'rent'
+                ? 'text-blue-600 font-extrabold'
+                : 'text-slate-500 hover:text-slate-800 font-medium'
+            }`}
+          >
+            <Repeat className="w-5 h-5" />
+            <span className="text-[10px] tracking-tight">Rent</span>
+          </button>
 
-            <button
-              onClick={() => handleNavClick('pricing')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeTab === 'pricing'
-                  ? 'bg-sky-50 text-sky-700 font-bold'
-                  : 'text-slate-600 hover:text-sky-700 hover:bg-sky-50/50'
-              }`}
-            >
-              <TrendingDown className="w-3.5 h-3.5 text-sky-600" />
-              <span>Price Intel</span>
-            </button>
-
-            <button
-              onClick={() => handleNavClick('budget')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeTab === 'budget'
-                  ? 'bg-purple-50 text-purple-700 font-bold'
-                  : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50/50'
-              }`}
-            >
-              <Wallet className="w-3.5 h-3.5 text-purple-600" />
-              <span>Budget</span>
-            </button>
-
-            <button
-              onClick={() => handleNavClick('games')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                activeTab === 'games'
-                  ? 'bg-rose-50 text-rose-700 font-bold'
-                  : 'text-slate-600 hover:text-rose-700 hover:bg-rose-50/50'
-              }`}
-            >
-              <Gamepad2 className="w-3.5 h-3.5 text-rose-500" />
-              <span>Virtual Pet</span>
-            </button>
-
-            <button
-              onClick={() => handleNavClick('chat')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all relative flex items-center gap-1.5 ${
-                activeTab === 'chat'
-                  ? 'bg-indigo-50 text-indigo-600 font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Chat</span>
+          {/* TAB 5: CHAT */}
+          <button
+            type="button"
+            onClick={() => handleNavClick('chat')}
+            className={`flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all relative ${
+              activeTab === 'chat'
+                ? 'text-blue-600 font-extrabold'
+                : 'text-slate-500 hover:text-slate-800 font-medium'
+            }`}
+          >
+            <div className="relative">
+              <MessageSquare className="w-5 h-5" />
               {unreadChatCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
+                <span className="absolute -top-1 -right-2.5 px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[9px] font-bold">
                   {unreadChatCount}
                 </span>
               )}
-            </button>
-
-            <button
-              onClick={() => handleNavClick('my-requests')}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all relative flex items-center gap-1.5 ${
-                activeTab === 'my-requests'
-                  ? 'bg-indigo-50 text-indigo-600 font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <ArrowLeftRight className="w-3.5 h-3.5" />
-              <span>Requests</span>
-              {pendingRequestsCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
-                  {pendingRequestsCount}
-                </span>
-              )}
-            </button>
-          </nav>
-
-          {/* Action Zone: Edition Checker, Notifications, Sell Button, Profile */}
-          <div className="flex items-center gap-2">
-            
-            {/* Textbook Edition Checker Quick Button */}
-            <button
-              onClick={onOpenEditionChecker}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
-              title="Check syllabus edition compatibility"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Syllabus Check</span>
-            </button>
-
-            {/* Notification Bell */}
-            <button
-              onClick={onOpenNotifications}
-              className="relative p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors focus:outline-none"
-              title="View notifications"
-            >
-              <Bell className="w-5 h-5" />
-              {unreadNotificationsCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
-                  {unreadNotificationsCount}
-                </span>
-              )}
-            </button>
-
-            {/* Create Listing (Seller / Both) */}
-            {canSell && (
-              <button
-                onClick={openCreateModal}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Sell Item</span>
-              </button>
-            )}
-
-            {/* Profile Avatar / Link */}
-            <button
-              onClick={() => handleNavClick('profile')}
-              className={`flex items-center gap-2 p-1.5 rounded-xl transition-all ${
-                activeTab === 'profile'
-                  ? 'bg-indigo-50 ring-2 ring-indigo-200'
-                  : 'hover:bg-slate-100'
-              }`}
-            >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 flex items-center justify-center text-white text-xs font-bold shadow-2xs">
-                AT
-              </div>
-            </button>
-
-            {/* Mobile Hamburger Menu */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 lg:hidden focus:outline-none"
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
-          </div>
-
-        </div>
-      </div>
-
-      {/* Mobile Menu Drawer */}
-      {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-2 animate-in slide-in-from-top-2 duration-150">
-          
-          <div className="p-3 bg-slate-50 rounded-xl mb-3 flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-600">Active Role</span>
-            <div className="flex gap-1.5">
-              {(['buyer', 'seller', 'both'] as UserRole[]).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => onRoleChange(r)}
-                  className={`px-2.5 py-1 rounded-lg text-xs capitalize font-bold ${
-                    userRole === r ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-600'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
             </div>
-          </div>
+            <span className="text-[10px] tracking-tight">Chat</span>
+          </button>
 
-          <div className="grid grid-cols-2 gap-2 text-xs font-medium">
-            <button
-              onClick={() => handleNavClick('home')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'home' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Marketplace
-            </button>
-            <button
-              onClick={() => handleNavClick('borrow')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'borrow' ? 'bg-teal-50 text-teal-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Borrow Gear
-            </button>
-            <button
-              onClick={() => handleNavClick('wanted')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'wanted' ? 'bg-amber-50 text-amber-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Wanted Board
-            </button>
-            <button
-              onClick={() => handleNavClick('free')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'free' ? 'bg-emerald-50 text-emerald-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Free & Reuse
-            </button>
-            <button
-              onClick={() => handleNavClick('pricing')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'pricing' ? 'bg-sky-50 text-sky-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Price Intel
-            </button>
-            <button
-              onClick={() => handleNavClick('budget')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'budget' ? 'bg-purple-50 text-purple-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Student Budget
-            </button>
-            <button
-              onClick={() => handleNavClick('games')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'games' ? 'bg-rose-50 text-rose-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Virtual Pet
-            </button>
-            <button
-              onClick={() => handleNavClick('chat')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'chat' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Chat ({unreadChatCount})
-            </button>
-            <button
-              onClick={() => handleNavClick('my-requests')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'my-requests' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              My Requests
-            </button>
-            <button
-              onClick={() => handleNavClick('profile')}
-              className={`p-2.5 rounded-xl text-left ${activeTab === 'profile' ? 'bg-indigo-50 text-indigo-700 font-bold' : 'hover:bg-slate-50'}`}
-            >
-              Student Profile
-            </button>
-          </div>
-
-          <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
-            <button
-              onClick={() => {
-                onOpenEditionChecker();
-                setMobileMenuOpen(false);
-              }}
-              className="w-full py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold text-center"
-            >
-              📖 Textbook Edition Checker
-            </button>
-
-            {canSell && (
-              <button
-                onClick={() => {
-                  openCreateModal();
-                  setMobileMenuOpen(false);
-                }}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold text-center shadow-xs"
-              >
-                + Create New Listing
-              </button>
-            )}
-          </div>
-
+          {/* TAB 6: ME */}
+          <button
+            type="button"
+            onClick={() => handleNavClick('me')}
+            className={`flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all ${
+              activeTab === 'me'
+                ? 'text-blue-600 font-extrabold'
+                : 'text-slate-500 hover:text-slate-800 font-medium'
+            }`}
+          >
+            <User className="w-5 h-5" />
+            <span className="text-[10px] tracking-tight">Me</span>
+          </button>
         </div>
-      )}
-    </header>
+      </nav>
+    </>
   );
 };
