@@ -13,6 +13,7 @@ import {
   CustomHeadConfig,
   SavedHeadImage
 } from '../types';
+import { imageStorageService } from './imageStorageService';
 
 const PET_STORAGE_KEY = 'campusloop_virtual_pet_v3';
 const MISSIONS_KEY = 'campusloop_pet_missions_v1';
@@ -828,9 +829,25 @@ export const petWorldService = {
 
   // --- SAVED HEADS IMAGE GALLERY ---
   getSavedHeads(): SavedHeadImage[] {
+    // 1. Try memory/IndexedDB cache first
+    const indexedHeads = imageStorageService.getCachedHeads();
+    if (indexedHeads && indexedHeads.length > 0) {
+      return indexedHeads;
+    }
+
+    // 2. Fallback to localStorage
     try {
       const stored = localStorage.getItem(SAVED_HEADS_KEY);
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Preload into image storage service
+          parsed.forEach((h: SavedHeadImage) => {
+            imageStorageService.saveHead(h.name, h.imageUrl, h.config, h.id);
+          });
+          return parsed;
+        }
+      }
     } catch {}
     return [];
   },
@@ -845,9 +862,15 @@ export const petWorldService = {
       config,
     };
     const updated = [newEntry, ...list.filter(h => h.imageUrl !== config.imageUrl)];
+    
+    // Save to IndexedDB service
+    imageStorageService.saveHead(newEntry.name, newEntry.imageUrl, newEntry.config, newEntry.id);
+
     try {
       localStorage.setItem(SAVED_HEADS_KEY, JSON.stringify(updated));
-    } catch {}
+    } catch (e) {
+      console.warn('LocalStorage quota reached, saved in IndexedDB:', e);
+    }
     return newEntry;
   },
 
@@ -867,6 +890,10 @@ export const petWorldService = {
     );
 
     const updatedHeads = list.filter(h => h.id !== headId);
+
+    // Delete from IndexedDB service
+    imageStorageService.deleteHead(headId);
+
     try {
       localStorage.setItem(SAVED_HEADS_KEY, JSON.stringify(updatedHeads));
     } catch {}

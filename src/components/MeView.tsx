@@ -45,6 +45,8 @@ import {
 } from '../types';
 import { POPULAR_CAMPUS_LOCATIONS } from '../data/mockData';
 import { PetWorldView } from './PetWorldView';
+import { FacultySelect } from './FacultySelect';
+import { authService } from '../services/authService';
 
 interface MeViewProps {
   profile: UserProfile;
@@ -118,6 +120,7 @@ export const MeView: React.FC<MeViewProps> = ({
   const [rentalFilter, setRentalFilter] = useState<RentalFilter>('all');
   const [defaultSpot, setDefaultSpot] = useState(profile.dorm || POPULAR_CAMPUS_LOCATIONS[0]);
   const [contactHandle, setContactHandle] = useState(currentUser?.contactHandle || profile.contactHandle || '');
+  const [faculty, setFaculty] = useState(currentUser?.faculty || profile.faculty || 'Faculty of Computing (FC)');
   const [savedSettingsMsg, setSavedSettingsMsg] = useState(false);
   const [resetConfirmMsg, setResetConfirmMsg] = useState(false);
 
@@ -187,7 +190,10 @@ export const MeView: React.FC<MeViewProps> = ({
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateProfile({ dorm: defaultSpot, contactHandle });
+    onUpdateProfile({ dorm: defaultSpot, contactHandle, faculty });
+    if (currentUser) {
+      authService.updateCurrentUserProfile({ faculty, contactHandle });
+    }
     setSavedSettingsMsg(true);
     setTimeout(() => setSavedSettingsMsg(false), 2500);
   };
@@ -1642,6 +1648,15 @@ export const MeView: React.FC<MeViewProps> = ({
             </div>
 
             <div>
+              <FacultySelect
+                label="Registered UTM Faculty"
+                value={faculty}
+                onChange={(val) => setFaculty(val)}
+                required
+              />
+            </div>
+
+            <div>
               <label className="block font-bold text-slate-700 mb-1">
                 Contact Handle (Telegram / WhatsApp)
               </label>
@@ -1649,6 +1664,7 @@ export const MeView: React.FC<MeViewProps> = ({
                 type="text"
                 value={contactHandle}
                 onChange={(e) => setContactHandle(e.target.value)}
+                placeholder="e.g. @alextan_utm"
                 className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>

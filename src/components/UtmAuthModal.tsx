@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { authService } from '../services/authService';
 import { UTMUser, ALLOWED_UTM_DOMAINS } from '../types';
+import { FacultySelect } from './FacultySelect';
 
 export type AuthModalMode = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
 
@@ -480,22 +481,12 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Faculty
-                  </label>
-                  <select
+                  <FacultySelect
+                    label="Faculty *"
                     value={faculty}
-                    onChange={(e) => setFaculty(e.target.value)}
-                    className="w-full px-2 py-2 rounded-xl border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 text-[11px]"
-                  >
-                    <option value="Faculty of Computing (FC)">FC (Computing)</option>
-                    <option value="Faculty of Electrical Engineering (FKE)">FKE (Electrical)</option>
-                    <option value="Faculty of Mechanical Engineering (FKM)">FKM (Mechanical)</option>
-                    <option value="Faculty of Civil Engineering (FKA)">FKA (Civil)</option>
-                    <option value="Faculty of Science (FS)">FS (Science)</option>
-                    <option value="Faculty of Built Environment & Surveying">FABU</option>
-                    <option value="Azman Hashim International Business School">AHIBS</option>
-                  </select>
+                    onChange={(val) => setFaculty(val)}
+                    required
+                  />
                 </div>
               </div>
 

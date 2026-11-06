@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Trash2, 
   Sparkles, 
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { SavedHeadImage, VirtualPet } from '../../types';
 import { petWorldService } from '../../services/petWorldService';
+import { imageStorageService } from '../../services/imageStorageService';
 import { soundService } from '../../services/soundService';
 
 interface SavedHeadGalleryProps {
@@ -27,6 +28,14 @@ export const SavedHeadGallery: React.FC<SavedHeadGalleryProps> = ({
   const [savedHeads, setSavedHeads] = useState<SavedHeadImage[]>(() => 
     petWorldService.getSavedHeads()
   );
+
+  useEffect(() => {
+    imageStorageService.getAllHeads().then((heads) => {
+      if (heads && heads.length > 0) {
+        setSavedHeads(heads);
+      }
+    });
+  }, []);
 
   // Deletion state
   const [pendingDeleteHead, setPendingDeleteHead] = useState<SavedHeadImage | null>(null);
@@ -104,14 +113,14 @@ export const SavedHeadGallery: React.FC<SavedHeadGalleryProps> = ({
           <div className="flex items-center gap-2">
             <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
               <span className="text-xl">🖼️</span>
-              <span>My Saved Heads Gallery</span>
+              <span>My Saved Photos (Photo History)</span>
             </h3>
             <span className="px-2 py-0.5 rounded-full bg-pink-50 text-pink-700 font-bold text-xs border border-pink-200">
               {savedHeads.length} saved
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Manage your uploaded head photos. Reuse them on your pets or delete them anytime.
+            Reuse your uploaded photos as your pet's head, or safely delete individual photos anytime without affecting your pet's progress.
           </p>
         </div>
 

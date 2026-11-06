@@ -24,6 +24,7 @@ import { CartView } from './components/CartView';
 import { RentView } from './components/RentView';
 import { ChatView } from './components/ChatView';
 import { MeView } from './components/MeView';
+import { PetWorldView } from './components/PetWorldView';
 import { ListingDetailModal } from './components/ListingDetailModal';
 import { CreateListingModal } from './components/CreateListingModal';
 import { TradeRequestModal } from './components/TradeRequestModal';
@@ -865,6 +866,11 @@ export default function App() {
             onOpenAuthModal={() => handleOpenAuthModal('login')}
           />
         )}
+
+        {/* TAB 7: PET WORLD */}
+        {activeTab === 'pet' && (
+          <PetWorldView currentUser={currentUser} />
+        )}
       </main>
 
       {/* ============================================================== */}
@@ -972,8 +978,8 @@ export default function App() {
         onMarkAllAsRead={handleMarkAllNotificationsRead}
         onClearAll={handleClearAllNotifications}
         onNavigateTab={(tab) => {
-          if (tab === 'rent' || tab === 'me' || tab === 'chat' || tab === 'mall' || tab === 'cart') {
-            setActiveTab(tab);
+          if (tab === 'rent' || tab === 'me' || tab === 'chat' || tab === 'mall' || tab === 'cart' || (tab as any) === 'pet') {
+            setActiveTab(tab as any);
           }
         }}
       />

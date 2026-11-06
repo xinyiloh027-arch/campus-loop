@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { AccountState, UTMUser } from '../types';
 
-export type NavTab = 'home' | 'cart' | 'mall' | 'rent' | 'chat' | 'me';
+export type NavTab = 'home' | 'cart' | 'mall' | 'rent' | 'chat' | 'me' | 'pet';
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -167,6 +167,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 Profile
               </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('pet')}
+                className={`px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activeTab === 'pet'
+                    ? 'bg-pink-50 text-pink-700 font-bold border border-pink-200'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+                title="Pet World — Virtual Pet Game"
+              >
+                <span className="text-sm">🐾</span>
+                <span>Pet World</span>
+              </button>
             </nav>
 
             {/* Actions: UTM Account Status, Notifications, Sell/Rent Buttons */}
@@ -258,7 +272,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Fixed Bottom Navigation Bar (6 tabs: Home, Cart, Mall, Rent, Chat, Me) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg">
-        <div className="grid grid-cols-6 h-15.5 px-0.5 py-1">
+        <div className="grid grid-cols-7 h-15.5 px-0.5 py-1">
           {/* TAB 1: HOME */}
           <button
             type="button"
@@ -269,8 +283,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-500 hover:text-slate-800 font-medium'
             }`}
           >
-            <Home className="w-4.5 h-4.5" />
-            <span className="text-[9px] tracking-tight">Home</span>
+            <Home className="w-4 h-4" />
+            <span className="text-[8.5px] tracking-tight">Home</span>
           </button>
 
           {/* TAB 2: CART */}
@@ -284,14 +298,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <div className="relative">
-              <ShoppingCart className="w-4.5 h-4.5" />
+              <ShoppingCart className="w-4 h-4" />
               {cartCount > 0 && (
                 <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full bg-blue-600 text-white text-[8px] font-bold">
                   {cartCount}
                 </span>
               )}
             </div>
-            <span className="text-[9px] tracking-tight">Cart</span>
+            <span className="text-[8.5px] tracking-tight">Cart</span>
           </button>
 
           {/* TAB 3: MALL */}
@@ -304,8 +318,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-500 hover:text-slate-800 font-medium'
             }`}
           >
-            <Store className="w-4.5 h-4.5" />
-            <span className="text-[9px] tracking-tight">Mall</span>
+            <Store className="w-4 h-4" />
+            <span className="text-[8.5px] tracking-tight">Mall</span>
           </button>
 
           {/* TAB 4: RENT */}
@@ -318,8 +332,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-500 hover:text-slate-800 font-medium'
             }`}
           >
-            <Repeat className="w-4.5 h-4.5" />
-            <span className="text-[9px] tracking-tight">Rent</span>
+            <Repeat className="w-4 h-4" />
+            <span className="text-[8.5px] tracking-tight">Rent</span>
           </button>
 
           {/* TAB 5: CHAT */}
@@ -333,14 +347,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <div className="relative">
-              <MessageSquare className="w-4.5 h-4.5" />
+              <MessageSquare className="w-4 h-4" />
               {unreadChatCount > 0 && (
                 <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full bg-blue-600 text-white text-[8px] font-bold">
                   {unreadChatCount}
                 </span>
               )}
             </div>
-            <span className="text-[9px] tracking-tight">Chat</span>
+            <span className="text-[8.5px] tracking-tight">Chat</span>
           </button>
 
           {/* TAB 6: PROFILE */}
@@ -353,8 +367,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-slate-500 hover:text-slate-800 font-medium'
             }`}
           >
-            <User className="w-4.5 h-4.5" />
-            <span className="text-[9px] tracking-tight">Profile</span>
+            <User className="w-4 h-4" />
+            <span className="text-[8.5px] tracking-tight">Profile</span>
+          </button>
+
+          {/* TAB 7: PET WORLD */}
+          <button
+            type="button"
+            onClick={() => handleNavClick('pet')}
+            className={`flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all ${
+              activeTab === 'pet'
+                ? 'text-pink-600 font-extrabold'
+                : 'text-slate-500 hover:text-slate-800 font-medium'
+            }`}
+          >
+            <span className="text-base leading-none">🐾</span>
+            <span className="text-[8.5px] tracking-tight">Pet World</span>
           </button>
         </div>
       </nav>

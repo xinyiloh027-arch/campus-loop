@@ -63,6 +63,16 @@ class AuthService {
     this.setupFirebaseListener();
   }
 
+  private notifyListeners(user: UTMUser | null) {
+    this.listeners.forEach((listener) => {
+      try {
+        listener(user);
+      } catch (e) {
+        console.error('Error in auth listener:', e);
+      }
+    });
+  }
+
   // Purge any pre-created fake accounts from previous prototype sessions
   private cleanupLegacyFakeData() {
     try {
@@ -721,14 +731,18 @@ class AuthService {
     return this.subscribe(listener);
   }
 
-  private notifyListeners(user: UTMUser | null) {
-    this.listeners.forEach((l) => {
-      try {
-        l(user);
-      } catch (e) {
-        console.error('Error notifying auth listener:', e);
-      }
-    });
+  public updateCurrentUserProfile(updates: Partial<UTMUser>): UTMUser | null {
+    const user = this.getCurrentUser();
+    if (!user) return null;
+    const updated: UTMUser = { ...user, ...updates };
+    try {
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(updated));
+      const registered = this.getStoredUsers();
+      const updatedList = registered.map((u) => (u.id === updated.id || u.email === updated.email ? { ...u, ...updates } : u));
+      this.saveStoredUsers(updatedList);
+    } catch {}
+    this.notifyListeners(updated);
+    return updated;
   }
 }
 

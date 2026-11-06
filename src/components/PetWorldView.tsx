@@ -169,6 +169,14 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
     setCommunityPets(updated);
   };
 
+  // Revert to original animal head without deleting pet or losing pet points
+  const handleRevertToOriginalHead = () => {
+    soundService.playPop();
+    const reverted = petWorldService.removeCustomHeadFromPet();
+    handleUpdatePet(reverted);
+    setBubbleText(`*Sparkle* ${reverted.name} switched back to their original cute plush animal head! ✨`);
+  };
+
   // Confirm ready-made adoption
   const handleConfirmAdopt = () => {
     soundService.playLevelUp();
@@ -211,9 +219,13 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
               <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-pink-50 text-pink-700 border border-pink-200 capitalize">
                 {pet.growthStage} Companion
               </span>
-              {pet.isCustomPet && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Custom Studio 🎨
+              {pet.isCustomPet ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-pink-100 text-pink-700 border border-pink-200">
+                  Custom Photo Head 🎨
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  Original Plush 🐾
                 </span>
               )}
             </div>
@@ -257,24 +269,82 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
 
+          {/* Quick Head Revert Button if Custom Head active */}
+          {pet.isCustomPet && (
+            <button
+              onClick={handleRevertToOriginalHead}
+              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-xs font-bold transition-all cursor-pointer"
+              title="Switch back to original animal head"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Use Original Head</span>
+            </button>
+          )}
+
           {/* Adopt / Create Pet button */}
           <div className="flex items-center gap-1">
             <button
               onClick={() => setShowAdoptModal(true)}
               className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+              title="Adopt a ready-made cartoon companion"
             >
-              Adopt Pet
+              🐾 Adopt Pet
             </button>
             <button
               onClick={() => setShowStudio(true)}
               className="px-3 py-2 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+              title="Build your own pet with a custom photo head"
             >
-              <span>Studio</span>
+              <span>Custom Studio</span>
               <Sparkles className="w-3 h-3 text-pink-500" />
             </button>
           </div>
         </div>
 
+      </div>
+
+      {/* DUAL CREATION MODES PROMINENT DOCK */}
+      <div className="bg-gradient-to-r from-amber-50/70 via-pink-50/60 to-indigo-50/70 rounded-2xl p-3.5 sm:p-4 border border-pink-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-white border border-pink-200 flex items-center justify-center text-lg shadow-2xs shrink-0">
+            ✨
+          </div>
+          <div>
+            <div className="text-xs font-black text-slate-800 flex items-center gap-2">
+              <span>CampusLoop Dual Pet Modes</span>
+              {pet.isCustomPet ? (
+                <span className="px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 text-[10px] font-bold">
+                  Mode B: Custom Photo Head Active
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
+                  Mode A: Original System Pet Active
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {pet.isCustomPet
+                ? 'Your custom photo is active! You can easily toggle back to the original animal head anytime.'
+                : 'Enjoying your original kawaii pet! You can also try creating a custom photo head in the Studio.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <button
+            onClick={() => setShowAdoptModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold shadow-2xs transition-all cursor-pointer"
+          >
+            <span>🐾 Option A: Adopt Ready-Made Pet</span>
+          </button>
+          <button
+            onClick={() => setShowStudio(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-500 hover:bg-pink-600 text-white text-xs font-bold shadow-2xs transition-all cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Option B: Create My Own Pet</span>
+          </button>
+        </div>
       </div>
 
       {/* Sub-navigation: My Pet Room vs Saved Heads Gallery vs Campus Community Showcase */}
@@ -301,7 +371,7 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          <span>🖼️ Saved Heads ({savedHeadsCount})</span>
+          <span>🖼️ My Saved Photos ({savedHeadsCount})</span>
         </button>
 
         <button
@@ -712,6 +782,31 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
               </div>
             </div>
 
+            {/* Selected Species Preview Card */}
+            {(() => {
+              const selectedSpecies = PET_SPECIES_LIST.find((s) => s.type === adoptType);
+              return (
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-pink-50/70 via-indigo-50/50 to-amber-50/70 border border-indigo-100/80 flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-2xl bg-white shadow-2xs border border-pink-200/80 flex items-center justify-center shrink-0">
+                    <PetVisual type={adoptType} mood="happy" size={74} />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-extrabold text-slate-900">{selectedSpecies?.name}</h4>
+                      <span className="px-2 py-0.2 rounded-full bg-white text-indigo-700 text-[10px] font-bold border border-indigo-200 shadow-2xs">
+                        {selectedSpecies?.category}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 line-clamp-1">{selectedSpecies?.desc}</p>
+                    <div className="flex items-center gap-3 text-[10px] text-slate-500 pt-0.5">
+                      <span>🍴 Fav: <strong className="text-slate-700">{selectedSpecies?.favFood}</strong></span>
+                      <span>🎾 Fav: <strong className="text-slate-700">{selectedSpecies?.favActivity}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Adopt Inputs */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -721,6 +816,7 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
                   value={adoptName}
                   maxLength={20}
                   onChange={(e) => setAdoptName(e.target.value)}
+                  placeholder="e.g., Mochi, Boba, Sprout..."
                   className="w-full px-3.5 py-2 text-xs font-semibold rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                 />
               </div>

@@ -12,6 +12,7 @@ import {
 import { VirtualPet, PetShopItem, PetAccessory, DailyMission } from '../../types';
 import { SHOP_ITEMS, petWorldService } from '../../services/petWorldService';
 import { soundService } from '../../services/soundService';
+import { PetVisual } from './PetVisual';
 
 interface PetShopModalProps {
   pet: VirtualPet;
@@ -263,6 +264,30 @@ export const PetShopModal: React.FC<PetShopModalProps> = ({
       {activeTab === 'wardrobe' && (
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           
+          {/* Live Fitting Mirror Preview */}
+          <div className="p-4 rounded-3xl bg-gradient-to-r from-pink-50/70 via-indigo-50/50 to-amber-50/60 border border-indigo-100 flex items-center justify-center gap-6">
+            <div className="w-32 h-32 rounded-2xl bg-white shadow-2xs border border-pink-200/80 flex items-center justify-center">
+              <PetVisual
+                type={pet.type}
+                mood={pet.mood}
+                size={120}
+                accessory={pet.accessory}
+                growthStage={pet.growthStage}
+                isCustomPet={pet.isCustomPet}
+                customHead={pet.customHead}
+              />
+            </div>
+            <div className="space-y-1 text-left">
+              <span className="px-2.5 py-0.5 rounded-full bg-pink-100 text-pink-700 text-[10px] font-bold">
+                Dressing Room Mirror
+              </span>
+              <h4 className="text-sm font-black text-slate-900">{pet.name}'s Current Outfit</h4>
+              <p className="text-xs text-slate-500">
+                Click any accessory below to try it on immediately!
+              </p>
+            </div>
+          </div>
+
           {/* Outfits & Accessories */}
           <div className="space-y-3">
             <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
