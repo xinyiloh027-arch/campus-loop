@@ -142,12 +142,11 @@ export const CreateRentalModal: React.FC<CreateRentalModalProps> = ({
       availableDates: availableDates.trim(),
       pickupLocation: finalLocation,
       rules: rules.trim(),
-      ownerId: 'user-current',
-      ownerName: 'Alex Tan',
-      ownerContact: 'alex.tan@student.edu.my',
-      ownerAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-      ownerRating: 4.9,
-      ownerFaculty: 'FCSIT (Year 2)',
+      ownerId: '', // set from authenticated student
+      ownerName: '',
+      ownerContact: '',
+      ownerAvatar: '',
+      ownerFaculty: '',
       isAvailable: true,
       isUserCreated: true,
     };

@@ -208,97 +208,134 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
           </div>
 
-          {/* Recommended for You */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                  <Sparkles className="w-4 h-4" />
+          {/* When listings exist, display Recommended & Recently Listed */}
+          {listings.length === 0 ? (
+            <div className="bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-12 text-center space-y-4 shadow-xs">
+              <div className="w-16 h-16 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-inner">
+                <Sparkles className="w-8 h-8" />
+              </div>
+              <div className="space-y-1.5 max-w-md mx-auto">
+                <h3 className="text-lg font-bold text-slate-900">
+                  Welcome to CampusLoop! Be one of the first students to join our marketplace.
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                  Start by listing your textbooks, electronics, dorm gear, or calculators to sell to fellow UTM students.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={onOpenCreateModal}
+                  className="px-5 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-blue-200 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>List an Item</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateMall('All')}
+                  className="px-5 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                  <span>Explore Marketplace</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Recommended for You */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                      Recommended for You
+                    </h2>
+                  </div>
+                  <button
+                    onClick={() => onNavigateMall('All')}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    See More &rarr;
+                  </button>
                 </div>
-                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                  Recommended for You
-                </h2>
-              </div>
-              <button
-                onClick={() => onNavigateMall('All')}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-              >
-                See More &rarr;
-              </button>
-            </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-              {recommendedListings.map((listing) => (
-                <ListingCard
-                  key={listing.id}
-                  listing={listing}
-                  onSelect={onSelectListing}
-                  onAddToCart={onAddToCart}
-                  onToggleSave={onToggleFavorite}
-                  isSaved={savedListingIds.includes(listing.id)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Recently Listed */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                  <Clock className="w-4 h-4" />
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                  {recommendedListings.map((listing) => (
+                    <ListingCard
+                      key={listing.id}
+                      listing={listing}
+                      onSelect={onSelectListing}
+                      onAddToCart={onAddToCart}
+                      onToggleSave={onToggleFavorite}
+                      isSaved={savedListingIds.includes(listing.id)}
+                    />
+                  ))}
                 </div>
-                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                  Recently Listed by Classmates
-                </h2>
               </div>
-              <span className="text-xs text-slate-400 font-medium">Updated live</span>
-            </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-              {recentlyListed.map((listing) => (
-                <ListingCard
-                  key={listing.id}
-                  listing={listing}
-                  onSelect={onSelectListing}
-                  onAddToCart={onAddToCart}
-                  onToggleSave={onToggleFavorite}
-                  isSaved={savedListingIds.includes(listing.id)}
-                />
-              ))}
-            </div>
-          </div>
+              {/* Recently Listed */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                      Recently Listed by Classmates
+                    </h2>
+                  </div>
+                  <span className="text-xs text-slate-400 font-medium">Updated live</span>
+                </div>
 
-          {/* All Campus Marketplace Feed (2 cols on mobile, 3-4 cols on desktop) */}
-          <div className="space-y-3 pt-4 border-t border-slate-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                  Explore All Campus Items
-                </h2>
-                <p className="text-xs text-slate-500">Textbooks, calculators, electronics, dorm essentials & more</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                  {recentlyListed.map((listing) => (
+                    <ListingCard
+                      key={listing.id}
+                      listing={listing}
+                      onSelect={onSelectListing}
+                      onAddToCart={onAddToCart}
+                      onToggleSave={onToggleFavorite}
+                      isSaved={savedListingIds.includes(listing.id)}
+                    />
+                  ))}
+                </div>
               </div>
-              <button
-                onClick={() => onNavigateMall('All')}
-                className="text-xs font-bold text-blue-600 hover:text-blue-700 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 transition-colors"
-              >
-                Filter by Category &rarr;
-              </button>
-            </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-              {listings.map((listing) => (
-                <ListingCard
-                  key={listing.id}
-                  listing={listing}
-                  onSelect={onSelectListing}
-                  onAddToCart={onAddToCart}
-                  onToggleSave={onToggleFavorite}
-                  isSaved={savedListingIds.includes(listing.id)}
-                />
-              ))}
-            </div>
-          </div>
+              {/* All Campus Marketplace Feed (2 cols on mobile, 3-4 cols on desktop) */}
+              <div className="space-y-3 pt-4 border-t border-slate-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                      Explore All Campus Items
+                    </h2>
+                    <p className="text-xs text-slate-500">Textbooks, calculators, electronics, dorm essentials & more</p>
+                  </div>
+                  <button
+                    onClick={() => onNavigateMall('All')}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-700 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 transition-colors"
+                  >
+                    Filter by Category &rarr;
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                  {listings.map((listing) => (
+                    <ListingCard
+                      key={listing.id}
+                      listing={listing}
+                      onSelect={onSelectListing}
+                      onAddToCart={onAddToCart}
+                      onToggleSave={onToggleFavorite}
+                      isSaved={savedListingIds.includes(listing.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

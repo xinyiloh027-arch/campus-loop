@@ -185,9 +185,18 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500">{listing.sellerFaculty || 'Campus Student'}</p>
-                <div className="flex items-center gap-1 text-amber-600 text-xs font-semibold mt-0.5">
-                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                  <span>{listing.sellerRating || 4.9} rating ({sellerReviews.length > 0 ? sellerReviews.length : 4} student reviews)</span>
+                <div className="flex items-center gap-1 text-slate-500 text-xs font-semibold mt-0.5">
+                  {sellerReviews.length > 0 ? (
+                    <>
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      <span className="text-amber-600 font-bold">
+                        {(sellerReviews.reduce((sum, r) => sum + r.rating, 0) / sellerReviews.length).toFixed(1)}
+                      </span>
+                      <span>({sellerReviews.length} verified review{sellerReviews.length > 1 ? 's' : ''})</span>
+                    </>
+                  ) : (
+                    <span>New student seller</span>
+                  )}
                 </div>
               </div>
             </div>

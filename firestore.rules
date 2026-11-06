@@ -1,0 +1,141 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUtmUser() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        (
+          request.auth.token.email.matches('.*@graduate\\.utm\\.my$') ||
+          request.auth.token.email.matches('.*@student\\.utm\\.my$') ||
+          request.auth.token.email.matches('.*@utm\\.my$')
+        );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. User Profiles (/users/{userId})
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if false; // Blanket listing of all user accounts is disallowed for privacy
+      allow create: if isVerifiedUtmUser() && request.auth.uid == userId &&
+        incoming().keys().hasAll(['id', 'email', 'name', 'role', 'accountState', 'emailVerified', 'createdAt']) &&
+        incoming().id == request.auth.uid &&
+        incoming().email == request.auth.token.email &&
+        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100;
+      allow update: if isVerifiedUtmUser() && request.auth.uid == userId &&
+        incoming().id == existing().id &&
+        incoming().email == existing().email &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'studentId', 'faculty', 'dorm', 'avatarUrl', 'contactHandle']);
+      allow delete: if false; // User accounts cannot be arbitrarily deleted from client
+    }
+
+    // 2. Product Listings (/listings/{listingId})
+    match /listings/{listingId} {
+      allow get: if true;
+      allow list: if true; // Public marketplace feed for university students
+      allow create: if isVerifiedUtmUser() && isValidId(listingId) &&
+        incoming().keys().hasAll(['title', 'description', 'price', 'category', 'condition', 'sellerId', 'sellerName', 'status', 'createdAt']) &&
+        incoming().sellerId == request.auth.uid &&
+        incoming().price is number && incoming().price >= 0 &&
+        incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
+        incoming().status == 'Active';
+      allow update: if isVerifiedUtmUser() && (
+        // Seller editing their own listing
+        (existing().sellerId == request.auth.uid && incoming().sellerId == existing().sellerId) ||
+        // Status transition on purchase completion
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+      );
+      allow delete: if isVerifiedUtmUser() && existing().sellerId == request.auth.uid;
+    }
+
+    // 3. Rental Items (/rentals/{rentalId})
+    match /rentals/{rentalId} {
+      allow get: if true;
+      allow list: if true; // Public campus rental browse
+      allow create: if isVerifiedUtmUser() && isValidId(rentalId) &&
+        incoming().keys().hasAll(['name', 'description', 'category', 'condition', 'pricePerDay', 'securityDeposit', 'pickupLocation', 'ownerId', 'ownerName', 'isAvailable', 'createdAt']) &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().pricePerDay is number && incoming().pricePerDay >= 0 &&
+        incoming().securityDeposit is number && incoming().securityDeposit >= 0 &&
+        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 150;
+      allow update: if isVerifiedUtmUser() && (
+        (existing().ownerId == request.auth.uid && incoming().ownerId == existing().ownerId) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['isAvailable']))
+      );
+      allow delete: if isVerifiedUtmUser() && existing().ownerId == request.auth.uid;
+    }
+
+    // 4. Trade & Purchase Requests (/trades/{tradeId})
+    match /trades/{tradeId} {
+      allow get: if isVerifiedUtmUser() && (resource.data.buyerId == request.auth.uid || resource.data.sellerId == request.auth.uid);
+      allow list: if isVerifiedUtmUser();
+      allow create: if isVerifiedUtmUser() && isValidId(tradeId) &&
+        incoming().keys().hasAll(['listingId', 'buyerId', 'buyerName', 'sellerId', 'sellerName', 'offeredPrice', 'status', 'createdAt']) &&
+        incoming().buyerId == request.auth.uid &&
+        incoming().status == 'Pending';
+      allow update: if isVerifiedUtmUser() && (
+        // Seller accepting/rejecting
+        existing().sellerId == request.auth.uid ||
+        // Buyer cancelling
+        existing().buyerId == request.auth.uid
+      ) && incoming().buyerId == existing().buyerId && incoming().sellerId == existing().sellerId;
+      allow delete: if false;
+    }
+
+    // 5. Rental Booking Requests (/rentalRequests/{rentalRequestId})
+    match /rentalRequests/{rentalRequestId} {
+      allow get: if isVerifiedUtmUser() && (resource.data.renterId == request.auth.uid || resource.data.ownerId == request.auth.uid);
+      allow list: if isVerifiedUtmUser();
+      allow create: if isVerifiedUtmUser() && isValidId(rentalRequestId) &&
+        incoming().keys().hasAll(['rentalItemId', 'renterId', 'renterName', 'ownerId', 'ownerName', 'startDate', 'returnDate', 'status', 'createdAt']) &&
+        incoming().renterId == request.auth.uid &&
+        incoming().status == 'Pending';
+      allow update: if isVerifiedUtmUser() && (
+        existing().ownerId == request.auth.uid || existing().renterId == request.auth.uid
+      ) && incoming().renterId == existing().renterId && incoming().ownerId == existing().ownerId;
+      allow delete: if false;
+    }
+
+    // 6. Conversations (/conversations/{conversationId})
+    match /conversations/{conversationId} {
+      allow get: if isVerifiedUtmUser() && (resource.data.buyerId == request.auth.uid || resource.data.sellerId == request.auth.uid);
+      allow list: if isVerifiedUtmUser();
+      allow create: if isVerifiedUtmUser() && (incoming().buyerId == request.auth.uid || incoming().sellerId == request.auth.uid);
+      allow update: if isVerifiedUtmUser() && (existing().buyerId == request.auth.uid || existing().sellerId == request.auth.uid);
+      allow delete: if false;
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read: if isVerifiedUtmUser() && (
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.buyerId == request.auth.uid ||
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.sellerId == request.auth.uid
+        );
+        allow create: if isVerifiedUtmUser() &&
+          incoming().senderId == request.auth.uid &&
+          incoming().text is string && incoming().text.size() > 0 && incoming().text.size() <= 1000;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

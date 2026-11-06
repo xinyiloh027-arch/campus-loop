@@ -34,7 +34,7 @@ export const PetShareModal: React.FC<PetShareModalProps> = ({
   const [customQuote, setCustomQuote] = useState(pet.catchphrase || 'Having a cozy day in Pet World!');
   const [isPublic, setIsPublic] = useState(pet.isPublicInShowcase !== false);
 
-  const ownerName = currentUser?.name || 'Alex Tan';
+  const ownerName = currentUser?.name || 'UTM Student';
   const ownerFaculty = currentUser?.faculty || 'Universiti Teknologi Malaysia';
 
   const handleCopyLink = () => {

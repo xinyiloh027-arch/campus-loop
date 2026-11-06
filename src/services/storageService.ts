@@ -1,11 +1,9 @@
 /**
- * CampusLoop Storage Service (Frontend Prototype Layer)
+ * CampusLoop Real Data & Persistence Service
  * 
- * NOTE FOR BEGINNER PROGRAMMERS:
- * -------------------------------------------------------------
- * This service manages state using browser `localStorage`.
- * Your created listings, reviews, trade requests, chats, budget entries,
- * savings goals, and virtual pet progress survive page refreshes!
+ * Connected to Firebase Cloud Firestore with automatic real-time sync.
+ * All fake demo products, simulated rentals, mock reviews, and pre-seeded
+ * transactions have been completely removed.
  */
 
 import { 
@@ -15,107 +13,64 @@ import {
   Review, 
   ChatConversation, 
   ChatMessage, 
-  VirtualPet, 
-  BudgetTransaction, 
-  BudgetSettings,
-  UserRole,
-  SavingsGoal,
-  CampusNotification,
-  BorrowRequest,
   CartItem,
   RentalItem,
   RentalRequest,
   RentalStatus,
-  DepositStatus
+  DepositStatus,
+  CampusNotification,
+  UserRole
 } from '../types';
 
 import { 
-  INITIAL_LISTINGS, 
-  INITIAL_TRADE_REQUESTS, 
-  INITIAL_USER_PROFILE, 
-  INITIAL_REVIEWS, 
-  INITIAL_CHAT_CONVERSATIONS, 
-  INITIAL_CART,
-  INITIAL_RENTAL_ITEMS,
-  INITIAL_RENTAL_REQUESTS
-} from '../data/mockData';
-import { petWorldService } from './petWorldService';
+  initFirebase, 
+  isFirebaseConfigured,
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  getDocs, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  onSnapshot
+} from './firebase';
 
-const LISTINGS_KEY = 'campusloop_listings_v4';
-const REQUESTS_KEY = 'campusloop_trade_requests_v4';
-const PROFILE_KEY = 'campusloop_user_profile_v4';
-const REVIEWS_KEY = 'campusloop_reviews_v4';
-const CHATS_KEY = 'campusloop_chats_v4';
-const CART_KEY = 'campusloop_cart_v4';
-const RENTAL_ITEMS_KEY = 'campusloop_rental_items_v1';
-const RENTAL_REQUESTS_KEY = 'campusloop_rental_requests_v1';
-const PET_KEY = 'campusloop_virtual_pet_v3';
-const BUDGET_TX_KEY = 'campusloop_budget_transactions_v3';
-const BUDGET_SETTINGS_KEY = 'campusloop_budget_settings_v3';
-const SAVINGS_KEY = 'campusloop_savings_goals_v3';
-const NOTIFICATIONS_KEY = 'campusloop_notifications_v3';
-const BORROW_KEY = 'campusloop_borrow_requests_v3';
+const LISTINGS_KEY = 'campusloop_real_listings_v1';
+const REQUESTS_KEY = 'campusloop_real_trade_requests_v1';
+const PROFILE_KEY = 'campusloop_real_user_profile_v1';
+const REVIEWS_KEY = 'campusloop_real_reviews_v1';
+const CHATS_KEY = 'campusloop_real_chats_v1';
+const CART_KEY = 'campusloop_real_cart_v1';
+const RENTAL_ITEMS_KEY = 'campusloop_real_rental_items_v1';
+const RENTAL_REQUESTS_KEY = 'campusloop_real_rental_requests_v1';
+const NOTIFICATIONS_KEY = 'campusloop_real_notifications_v1';
 
-const INITIAL_SAVINGS_GOALS: SavingsGoal[] = [
-  {
-    id: 'goal-1',
-    title: 'Next Semester Textbooks Fund',
-    targetAmount: 200,
-    currentAmount: 85,
-    deadline: 'End of Semester',
-    category: 'Textbooks',
-    plantStage: 'growing',
-    rewardPetItem: "Dean's Scholar Cap",
-    isCompleted: false,
-  },
-  {
-    id: 'goal-2',
-    title: 'Dorm Mini Air Cooler',
-    targetAmount: 90,
-    currentAmount: 90,
-    deadline: 'Midterm Break',
-    category: 'Dorm Essentials',
-    plantStage: 'bloomed',
-    rewardPetItem: 'Peach Ribbon Bow',
-    isCompleted: true,
-  }
+// Legacy keys from prototype with fake items that must be cleaned up
+const LEGACY_STORAGE_KEYS = [
+  'campusloop_listings_v4',
+  'campusloop_trade_requests_v4',
+  'campusloop_user_profile_v4',
+  'campusloop_reviews_v4',
+  'campusloop_chats_v4',
+  'campusloop_cart_v4',
+  'campusloop_rental_items_v1',
+  'campusloop_rental_requests_v1',
+  'campusloop_notifications_v3',
+  'campusloop_budget_transactions_v3',
+  'campusloop_savings_goals_v3'
 ];
 
-const INITIAL_NOTIFICATIONS: CampusNotification[] = [
-  {
-    id: 'notif-1',
-    type: 'trade_request',
-    title: 'Trade Request Accepted!',
-    message: 'Danial Hakim accepted your request for "Calculus: Early Transcendentals (8th Ed)". Meetup at Central Library.',
-    createdAt: '10 mins ago',
-    timestamp: '10 mins ago',
-    isRead: false,
-    read: false,
-    linkTab: 'my-requests',
-  },
-  {
-    id: 'notif-2',
-    type: 'price_alert',
-    title: 'Price Benchmark Insight',
-    message: 'New listing "Logitech MX Master 3S" is priced RM 80 below Shopee/Lazada market retail.',
-    createdAt: '1 hour ago',
-    timestamp: '1 hour ago',
-    isRead: false,
-    read: false,
-    linkTab: 'pricing',
-  },
-  {
-    id: 'notif-3',
-    type: 'borrow_reminder',
-    title: 'Borrow Item Due Soon',
-    message: 'Scientific Calculator Casio fx-570EX is scheduled for return to Hafiz Rahim tomorrow.',
-    createdAt: 'Yesterday',
-    timestamp: 'Yesterday',
-    isRead: true,
-    read: true,
-    linkTab: 'borrow',
-  }
-];
+function cleanupLegacyMockStorage() {
+  try {
+    LEGACY_STORAGE_KEYS.forEach(k => localStorage.removeItem(k));
+  } catch {}
+}
+
+cleanupLegacyMockStorage();
 
 export const storageService = {
   // --- LISTINGS ---
@@ -126,29 +81,221 @@ export const storageService = {
     } catch (e) {
       console.warn('Could not read listings from localStorage:', e);
     }
-    localStorage.setItem(LISTINGS_KEY, JSON.stringify(INITIAL_LISTINGS));
-    return INITIAL_LISTINGS;
+    return [];
   },
 
-  createListing(listingData: Omit<Listing, 'id' | 'createdAt' | 'status' | 'isUserCreated'>): Listing {
-    const currentListings = this.getListings();
+  async createListing(listingData: Omit<Listing, 'id' | 'createdAt' | 'status' | 'isUserCreated'>): Promise<Listing> {
     const newListing: Listing = {
       ...listingData,
-      id: `list-user-${Date.now()}`,
+      id: `list-${Date.now()}`,
       createdAt: new Date().toISOString(),
       status: 'Active',
       isUserCreated: true,
     };
-    const updated = [newListing, ...currentListings];
+
+    // 1. Firebase Firestore sync if connected
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const docRef = await addDoc(collection(db, 'listings'), newListing);
+        newListing.id = docRef.id;
+      } catch (err) {
+        console.warn('Firestore listing write warning:', err);
+      }
+    }
+
+    // 2. Local state update
+    const current = this.getListings();
+    const updated = [newListing, ...current];
     try {
       localStorage.setItem(LISTINGS_KEY, JSON.stringify(updated));
     } catch (e) {
-      console.error('Failed to save listing:', e);
+      console.error('Failed to save listing locally:', e);
     }
     return newListing;
   },
 
-  // --- TRADE REQUESTS ---
+  async updateListing(id: string, updates: Partial<Listing>): Promise<Listing | null> {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        await updateDoc(doc(db, 'listings', id), updates);
+      } catch (err) {
+        console.warn('Firestore listing update warning:', err);
+      }
+    }
+
+    const current = this.getListings();
+    let updatedItem: Listing | null = null;
+    const updated = current.map(item => {
+      if (item.id === id) {
+        updatedItem = { ...item, ...updates };
+        return updatedItem;
+      }
+      return item;
+    });
+
+    try {
+      localStorage.setItem(LISTINGS_KEY, JSON.stringify(updated));
+    } catch {}
+    return updatedItem;
+  },
+
+  async deleteListing(id: string): Promise<void> {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        await deleteDoc(doc(db, 'listings', id));
+      } catch (err) {
+        console.warn('Firestore listing delete warning:', err);
+      }
+    }
+
+    const current = this.getListings();
+    const updated = current.filter(item => item.id !== id);
+    try {
+      localStorage.setItem(LISTINGS_KEY, JSON.stringify(updated));
+    } catch {}
+  },
+
+  subscribeToListings(callback: (listings: Listing[]) => void): () => void {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const q = query(collection(db, 'listings'), orderBy('createdAt', 'desc'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const items: Listing[] = [];
+          snapshot.forEach(docSnap => {
+            items.push({ id: docSnap.id, ...(docSnap.data() as any) });
+          });
+          // Cache locally
+          localStorage.setItem(LISTINGS_KEY, JSON.stringify(items));
+          callback(items);
+        }, (err) => {
+          console.warn('Firestore listings subscription fallback:', err);
+          callback(this.getListings());
+        });
+        return unsubscribe;
+      } catch (e) {
+        console.warn('Failed to subscribe to Firestore listings:', e);
+      }
+    }
+
+    // Default to local listings
+    callback(this.getListings());
+    return () => {};
+  },
+
+  // --- RENTAL ITEMS ---
+  getRentalItems(): RentalItem[] {
+    try {
+      const stored = localStorage.getItem(RENTAL_ITEMS_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.warn('Could not read rental items:', e);
+    }
+    return [];
+  },
+
+  saveRentalItems(items: RentalItem[]): RentalItem[] {
+    try {
+      localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(items));
+    } catch (e) {
+      console.error('Failed to save rental items:', e);
+    }
+    return items;
+  },
+
+  async createRentalItem(itemData: Omit<RentalItem, 'id' | 'createdAt'>): Promise<RentalItem> {
+    const newItem: RentalItem = {
+      ...itemData,
+      id: `rent-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const docRef = await addDoc(collection(db, 'rentals'), newItem);
+        newItem.id = docRef.id;
+      } catch (err) {
+        console.warn('Firestore rental write warning:', err);
+      }
+    }
+
+    const items = this.getRentalItems();
+    const updated = [newItem, ...items];
+    this.saveRentalItems(updated);
+    return newItem;
+  },
+
+  async updateRentalItem(id: string, updates: Partial<RentalItem>): Promise<RentalItem | null> {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        await updateDoc(doc(db, 'rentals', id), updates);
+      } catch (err) {
+        console.warn('Firestore rental update warning:', err);
+      }
+    }
+
+    const items = this.getRentalItems();
+    let updatedItem: RentalItem | null = null;
+    const updated = items.map((item) => {
+      if (item.id === id) {
+        updatedItem = { ...item, ...updates };
+        return updatedItem;
+      }
+      return item;
+    });
+    if (updatedItem) {
+      this.saveRentalItems(updated);
+    }
+    return updatedItem;
+  },
+
+  async deleteRentalItem(id: string): Promise<void> {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        await deleteDoc(doc(db, 'rentals', id));
+      } catch (err) {
+        console.warn('Firestore rental delete warning:', err);
+      }
+    }
+
+    const items = this.getRentalItems();
+    const updated = items.filter((item) => item.id !== id);
+    this.saveRentalItems(updated);
+  },
+
+  subscribeToRentalItems(callback: (items: RentalItem[]) => void): () => void {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const q = query(collection(db, 'rentals'), orderBy('createdAt', 'desc'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const items: RentalItem[] = [];
+          snapshot.forEach(docSnap => {
+            items.push({ id: docSnap.id, ...(docSnap.data() as any) });
+          });
+          this.saveRentalItems(items);
+          callback(items);
+        }, (err) => {
+          console.warn('Firestore rentals subscription fallback:', err);
+          callback(this.getRentalItems());
+        });
+        return unsubscribe;
+      } catch (e) {
+        console.warn('Failed to subscribe to Firestore rentals:', e);
+      }
+    }
+
+    callback(this.getRentalItems());
+    return () => {};
+  },
+
+  // --- TRADE / PURCHASE REQUESTS ---
   getTradeRequests(): TradeRequest[] {
     try {
       const stored = localStorage.getItem(REQUESTS_KEY);
@@ -156,239 +303,284 @@ export const storageService = {
     } catch (e) {
       console.warn('Could not read trade requests:', e);
     }
-    localStorage.setItem(REQUESTS_KEY, JSON.stringify(INITIAL_TRADE_REQUESTS));
-    return INITIAL_TRADE_REQUESTS;
+    return [];
   },
 
-  createTradeRequest(data: Omit<TradeRequest, 'id' | 'createdAt' | 'status' | 'isSentByCurrentUser'>): TradeRequest {
-    const current = this.getTradeRequests();
+  saveTradeRequests(requests: TradeRequest[]): TradeRequest[] {
+    try {
+      localStorage.setItem(REQUESTS_KEY, JSON.stringify(requests));
+    } catch {}
+    return requests;
+  },
+
+  async createTradeRequest(data: Omit<TradeRequest, 'id' | 'createdAt' | 'status' | 'isSentByCurrentUser'>): Promise<TradeRequest> {
     const newRequest: TradeRequest = {
       ...data,
-      id: `req-user-${Date.now()}`,
+      id: `req-${Date.now()}`,
       createdAt: new Date().toISOString(),
       status: 'Pending',
       isSentByCurrentUser: true,
     };
-    const updated = [newRequest, ...current];
-    try {
-      localStorage.setItem(REQUESTS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save trade request:', e);
+
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const docRef = await addDoc(collection(db, 'trades'), newRequest);
+        newRequest.id = docRef.id;
+      } catch (err) {
+        console.warn('Firestore trade write warning:', err);
+      }
     }
+
+    const current = this.getTradeRequests();
+    const updated = [newRequest, ...current];
+    this.saveTradeRequests(updated);
+
+    this.addCampusNotification(
+      'New Purchase Request!',
+      `${newRequest.buyerName} requested to purchase "${newRequest.listingTitle}" for RM ${newRequest.offeredPrice}.`,
+      'trade_request',
+      'me'
+    );
+
     return newRequest;
   },
 
-  updateRequestStatus(requestId: string, status: TradeRequest['status']): TradeRequest[] {
+  async updateTradeRequestStatus(requestId: string, status: TradeRequest['status']): Promise<TradeRequest[]> {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        await updateDoc(doc(db, 'trades', requestId), { status });
+      } catch (err) {
+        console.warn('Firestore trade status update warning:', err);
+      }
+    }
+
     const current = this.getTradeRequests();
-    const updated = current.map(req => req.id === requestId ? { ...req, status } : req);
-    try {
-      localStorage.setItem(REQUESTS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to update request status:', e);
-    }
-    return updated;
-  },
-
-  updateTradeRequestStatus(requestId: string, status: TradeRequest['status']): TradeRequest[] {
-    return this.updateRequestStatus(requestId, status);
-  },
-
-  // --- REVIEWS ---
-  getReviews(): Review[] {
-    try {
-      const stored = localStorage.getItem(REVIEWS_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.warn('Could not read reviews:', e);
-    }
-    localStorage.setItem(REVIEWS_KEY, JSON.stringify(INITIAL_REVIEWS));
-    return INITIAL_REVIEWS;
-  },
-
-  addReview(reviewData: Omit<Review, 'id' | 'createdAt'>): Review {
-    const current = this.getReviews();
-    const newRev: Review = {
-      ...reviewData,
-      id: `rev-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [newRev, ...current];
-    try {
-      localStorage.setItem(REVIEWS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save review:', e);
-    }
-    return newRev;
-  },
-
-  reportReview(reviewId: string): Review[] {
-    const current = this.getReviews();
-    const updated = current.map(r => r.id === reviewId ? { ...r, reported: true } : r);
-    try {
-      localStorage.setItem(REVIEWS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to report review:', e);
-    }
-    return updated;
-  },
-
-  // --- USER PROFILE & ROLE ---
-  getUserProfile(): UserProfile {
-    try {
-      const stored = localStorage.getItem(PROFILE_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.warn('Could not read user profile:', e);
-    }
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(INITIAL_USER_PROFILE));
-    return INITIAL_USER_PROFILE;
-  },
-
-  updateUserProfile(updatedProfile: UserProfile): UserProfile {
-    try {
-      localStorage.setItem(PROFILE_KEY, JSON.stringify(updatedProfile));
-    } catch (e) {
-      console.error('Failed to update user profile:', e);
-    }
-    return updatedProfile;
-  },
-
-  updateUserRole(role: UserRole): UserProfile {
-    const profile = this.getUserProfile();
-    const updated = { ...profile, role };
-    return this.updateUserProfile(updated);
-  },
-
-  setUserRole(role: UserRole): UserProfile {
-    return this.updateUserRole(role);
-  },
-
-  toggleSaveListing(listingId: string): string[] {
-    const profile = this.getUserProfile();
-    const favs = profile.savedListingIds || [];
-    const exists = favs.includes(listingId);
-    const updatedFavs = exists ? favs.filter(id => id !== listingId) : [...favs, listingId];
-    this.updateUserProfile({ ...profile, savedListingIds: updatedFavs });
-    return updatedFavs;
-  },
-
-  toggleFavorite(listingId: string): string[] {
-    return this.toggleSaveListing(listingId);
-  },
-
-  // --- CHAT CONVERSATIONS ---
-  getChatConversations(): ChatConversation[] {
-    try {
-      const stored = localStorage.getItem(CHATS_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.warn('Could not read chat conversations:', e);
-    }
-    localStorage.setItem(CHATS_KEY, JSON.stringify(INITIAL_CHAT_CONVERSATIONS));
-    return INITIAL_CHAT_CONVERSATIONS;
-  },
-
-  sendChatMessage(conversationId: string, text: string, sharedListing?: ChatMessage['sharedListing']): ChatConversation[] {
-    const convos = this.getChatConversations();
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    const updated = convos.map(c => {
-      if (c.id === conversationId) {
-        const newMsg: ChatMessage = {
-          id: `msg-${Date.now()}`,
-          senderId: 'user-current',
-          senderName: 'Alex Tan',
-          text,
-          timestamp: timeStr,
-          sharedListing,
-        };
-        return {
-          ...c,
-          lastMessage: text,
-          lastMessageTime: timeStr,
-          messages: [...c.messages, newMsg],
-        };
+    const updated = current.map(req => {
+      if (req.id === requestId) {
+        const updatedReq = { ...req, status };
+        if (status === 'Accepted') {
+          this.addCampusNotification(
+            'Purchase Request Accepted!',
+            `The seller accepted your request for "${req.listingTitle}". Coordinate campus meetup in Chat!`,
+            'trade_request',
+            'chat'
+          );
+        } else if (status === 'Rejected') {
+          this.addCampusNotification(
+            'Purchase Request Declined',
+            `Your request for "${req.listingTitle}" was declined by the seller.`,
+            'trade_request',
+            'mall'
+          );
+        }
+        return updatedReq;
       }
-      return c;
+      return req;
     });
 
-    try {
-      localStorage.setItem(CHATS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to save message:', e);
-    }
+    this.saveTradeRequests(updated);
     return updated;
   },
 
-  sendMessage(conversationId: string, text: string, sharedListing?: any): ChatConversation[] {
-    return this.sendChatMessage(conversationId, text, sharedListing);
+  updateRequestStatus(requestId: string, status: TradeRequest['status']): TradeRequest[] {
+    this.updateTradeRequestStatus(requestId, status);
+    return this.getTradeRequests();
   },
 
-  createGroupChat(groupName: string, members: string[]): ChatConversation {
-    const convos = this.getChatConversations();
-    const newGroup: ChatConversation = {
-      id: `chat-group-${Date.now()}`,
-      type: 'group',
-      name: groupName,
-      avatar: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=120&q=80',
-      participants: [
-        { id: 'user-current', name: 'Alex Tan', role: 'Student' },
-        ...members.map((m, idx) => ({ id: `member-${Date.now()}-${idx}`, name: m, role: 'Student' })),
-      ],
-      lastMessage: 'Group conversation created',
-      lastMessageTime: 'Just now',
-      unreadCount: 0,
-      isBlocked: false,
-      messages: [],
-    };
-    const updated = [newGroup, ...convos];
+  // --- RENTAL REQUESTS & WORKFLOW ---
+  getRentalRequests(): RentalRequest[] {
     try {
-      localStorage.setItem(CHATS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to create group chat:', e);
-    }
-    return newGroup;
-  },
-
-  blockChat(conversationId: string): ChatConversation[] {
-    const convos = this.getChatConversations();
-    const updated = convos.map(c => {
-      if (c.id === conversationId) {
-        return { ...c, isBlocked: !c.isBlocked };
-      }
-      return c;
-    });
-    try {
-      localStorage.setItem(CHATS_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.error('Failed to block/unblock chat:', e);
-    }
-    return updated;
-  },
-
-  // --- PET & GOALS HELPERS (COMPATIBILITY) ---
-  getVirtualPet(): VirtualPet {
-    return petWorldService.getPet();
-  },
-
-  updateVirtualPet(pet: VirtualPet): VirtualPet {
-    return petWorldService.savePet(pet);
-  },
-
-  getSavingsGoals(): SavingsGoal[] {
-    try {
-      const stored = localStorage.getItem(SAVINGS_KEY);
+      const stored = localStorage.getItem(RENTAL_REQUESTS_KEY);
       if (stored) return JSON.parse(stored);
-    } catch {}
+    } catch (e) {
+      console.warn('Could not read rental requests:', e);
+    }
     return [];
   },
 
-  saveSavingsGoals(goals: SavingsGoal[]): SavingsGoal[] {
+  saveRentalRequests(requests: RentalRequest[]): RentalRequest[] {
     try {
-      localStorage.setItem(SAVINGS_KEY, JSON.stringify(goals));
-    } catch {}
-    return goals;
+      localStorage.setItem(RENTAL_REQUESTS_KEY, JSON.stringify(requests));
+    } catch (e) {
+      console.error('Failed to save rental requests:', e);
+    }
+    return requests;
+  },
+
+  checkRentalOverlap(rentalItemId: string, startDate: string, returnDate: string, excludeRequestId?: string): boolean {
+    const requests = this.getRentalRequests();
+    const activeBlockingStatuses: RentalStatus[] = [
+      'Approved',
+      'Ready for Handover',
+      'Rented Out',
+      'Return Pending',
+      'Inspection Pending'
+    ];
+
+    const targetStart = new Date(startDate).getTime();
+    const targetReturn = new Date(returnDate).getTime();
+
+    return requests.some((req) => {
+      if (req.rentalItemId !== rentalItemId) return false;
+      if (excludeRequestId && req.id === excludeRequestId) return false;
+      if (!activeBlockingStatuses.includes(req.status)) return false;
+
+      const reqStart = new Date(req.startDate).getTime();
+      const reqReturn = new Date(req.returnDate).getTime();
+
+      return targetStart <= reqReturn && targetReturn >= reqStart;
+    });
+  },
+
+  async createRentalRequest(requestData: Omit<RentalRequest, 'id' | 'createdAt' | 'updatedAt'>): Promise<RentalRequest> {
+    const newReq: RentalRequest = {
+      ...requestData,
+      id: `rental-req-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const docRef = await addDoc(collection(db, 'rentalRequests'), newReq);
+        newReq.id = docRef.id;
+      } catch (err) {
+        console.warn('Firestore rental request write warning:', err);
+      }
+    }
+
+    const requests = this.getRentalRequests();
+    const updated = [newReq, ...requests];
+    this.saveRentalRequests(updated);
+
+    this.addCampusNotification(
+      'New Rental Request!',
+      `${newReq.renterName} requested to rent "${newReq.rentalItemName}" from ${newReq.startDate} to ${newReq.returnDate}.`,
+      'rental_request',
+      'rent',
+      newReq.id
+    );
+
+    return newReq;
+  },
+
+  async updateRentalRequestStatus(id: string, status: RentalStatus, extraData?: Partial<RentalRequest>): Promise<RentalRequest | null> {
+    const now = new Date().toISOString();
+    const payload = { status, updatedAt: now, ...(extraData || {}) };
+
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        await updateDoc(doc(db, 'rentalRequests', id), payload);
+      } catch (err) {
+        console.warn('Firestore rental request status update warning:', err);
+      }
+    }
+
+    const requests = this.getRentalRequests();
+    let updatedReq: RentalRequest | null = null;
+
+    const updated = requests.map((req) => {
+      if (req.id === id) {
+        updatedReq = { ...req, ...payload };
+
+        if (status === 'Approved' || status === 'Rented Out') {
+          this.updateRentalItem(req.rentalItemId, { isAvailable: false });
+        } else if (status === 'Completed' || status === 'Rejected' || status === 'Cancelled') {
+          const hasOtherActive = this.getRentalRequests().some(
+            (other) => other.id !== id && other.rentalItemId === req.rentalItemId && 
+              ['Approved', 'Rented Out', 'Ready for Handover', 'Return Pending'].includes(other.status)
+          );
+          if (!hasOtherActive) {
+            this.updateRentalItem(req.rentalItemId, { isAvailable: true });
+          }
+        }
+        return updatedReq;
+      }
+      return req;
+    });
+
+    if (updatedReq) {
+      this.saveRentalRequests(updated);
+
+      if (status === 'Approved') {
+        this.addCampusNotification(
+          'Rental Request Approved!',
+          `Your rental request for "${(updatedReq as RentalRequest).rentalItemName}" was approved. Please arrange campus handover.`,
+          'rental_approved',
+          'rent',
+          id
+        );
+      } else if (status === 'Rejected') {
+        this.addCampusNotification(
+          'Rental Request Declined',
+          `Your rental request for "${(updatedReq as RentalRequest).rentalItemName}" was declined by the owner.`,
+          'rental_rejected',
+          'rent',
+          id
+        );
+      }
+    }
+    return updatedReq;
+  },
+
+  recordHandoverCondition(id: string, notes: string): Promise<RentalRequest | null> {
+    return this.updateRentalRequestStatus(id, 'Rented Out', {
+      depositStatus: 'Paid',
+      handoverConditionNotes: notes,
+      handoverConfirmedAt: new Date().toISOString(),
+    });
+  },
+
+  confirmRenterReturn(id: string): Promise<RentalRequest | null> {
+    return this.updateRentalRequestStatus(id, 'Inspection Pending', {
+      returnReportedAt: new Date().toISOString(),
+    });
+  },
+
+  recordReturnInspection(
+    id: string, 
+    returnNotes: string, 
+    passed: boolean, 
+    proposedDeduction = 0, 
+    deductionReason?: string
+  ): Promise<RentalRequest | null> {
+    if (passed) {
+      return this.updateRentalRequestStatus(id, 'Refund Pending', {
+        inspectionPassed: true,
+        returnConditionNotes: returnNotes,
+        proposedDeduction: 0,
+      });
+    } else {
+      return this.updateRentalRequestStatus(id, 'Dispute', {
+        depositStatus: 'Dispute',
+        inspectionPassed: false,
+        returnConditionNotes: returnNotes,
+        proposedDeduction,
+        deductionReason: deductionReason || 'Condition damage or missing accessories',
+        disputeNotes: `Owner reported issue: "${deductionReason}". Proposed deduction: RM ${proposedDeduction}.`,
+      });
+    }
+  },
+
+  resolveDispute(id: string, agreedRefundAmount: number, disputeNotes: string, renterResponse?: string): Promise<RentalRequest | null> {
+    return this.updateRentalRequestStatus(id, 'Refund Pending', {
+      depositStatus: 'Refund Pending',
+      refundAmount: agreedRefundAmount,
+      disputeNotes,
+      renterDisputeResponse: renterResponse,
+    });
+  },
+
+  approveDepositRefund(id: string, refundAmount: number): Promise<RentalRequest | null> {
+    return this.updateRentalRequestStatus(id, 'Completed', {
+      depositStatus: 'Refunded',
+      refundAmount,
+      refundDate: new Date().toISOString(),
+    });
   },
 
   // --- CART MANAGEMENT ---
@@ -399,10 +591,7 @@ export const storageService = {
     } catch (e) {
       console.warn('Could not read cart:', e);
     }
-    try {
-      localStorage.setItem(CART_KEY, JSON.stringify(INITIAL_CART));
-    } catch {}
-    return INITIAL_CART;
+    return [];
   },
 
   saveCart(cart: CartItem[]): CartItem[] {
@@ -475,279 +664,252 @@ export const storageService = {
     return this.saveCart([]);
   },
 
-  // --- RENTAL ITEMS MANAGEMENT ---
-  getRentalItems(): RentalItem[] {
+  // --- CHAT CONVERSATIONS ---
+  getChatConversations(): ChatConversation[] {
     try {
-      const stored = localStorage.getItem(RENTAL_ITEMS_KEY);
+      const stored = localStorage.getItem(CHATS_KEY);
       if (stored) return JSON.parse(stored);
     } catch (e) {
-      console.warn('Could not read rental items:', e);
+      console.warn('Could not read chat conversations:', e);
     }
+    return [];
+  },
+
+  saveChatConversations(convos: ChatConversation[]): ChatConversation[] {
     try {
-      localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(INITIAL_RENTAL_ITEMS));
+      localStorage.setItem(CHATS_KEY, JSON.stringify(convos));
     } catch {}
-    return INITIAL_RENTAL_ITEMS;
+    return convos;
   },
 
-  saveRentalItems(items: RentalItem[]): RentalItem[] {
-    try {
-      localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(items));
-    } catch (e) {
-      console.error('Failed to save rental items:', e);
-    }
-    return items;
-  },
-
-  createRentalItem(itemData: Omit<RentalItem, 'id' | 'createdAt'>): RentalItem {
-    const items = this.getRentalItems();
-    const newItem: RentalItem = {
-      ...itemData,
-      id: `rent-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [newItem, ...items];
-    this.saveRentalItems(updated);
-    return newItem;
-  },
-
-  updateRentalItem(id: string, updates: Partial<RentalItem>): RentalItem | null {
-    const items = this.getRentalItems();
-    let updatedItem: RentalItem | null = null;
-    const updated = items.map((item) => {
-      if (item.id === id) {
-        updatedItem = { ...item, ...updates };
-        return updatedItem;
-      }
-      return item;
-    });
-    if (updatedItem) {
-      this.saveRentalItems(updated);
-    }
-    return updatedItem;
-  },
-
-  deleteRentalItem(id: string): void {
-    const items = this.getRentalItems();
-    const updated = items.filter((item) => item.id !== id);
-    this.saveRentalItems(updated);
-  },
-
-  // --- RENTAL REQUESTS & WORKFLOW ---
-  getRentalRequests(): RentalRequest[] {
-    try {
-      const stored = localStorage.getItem(RENTAL_REQUESTS_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-      console.warn('Could not read rental requests:', e);
-    }
-    try {
-      localStorage.setItem(RENTAL_REQUESTS_KEY, JSON.stringify(INITIAL_RENTAL_REQUESTS));
-    } catch {}
-    return INITIAL_RENTAL_REQUESTS;
-  },
-
-  saveRentalRequests(requests: RentalRequest[]): RentalRequest[] {
-    try {
-      localStorage.setItem(RENTAL_REQUESTS_KEY, JSON.stringify(requests));
-    } catch (e) {
-      console.error('Failed to save rental requests:', e);
-    }
-    return requests;
-  },
-
-  // Check overlapping approved/active rental bookings for the same item and dates
-  checkRentalOverlap(rentalItemId: string, startDate: string, returnDate: string, excludeRequestId?: string): boolean {
-    const requests = this.getRentalRequests();
-    const activeBlockingStatuses: RentalStatus[] = [
-      'Approved',
-      'Ready for Handover',
-      'Rented Out',
-      'Return Pending',
-      'Inspection Pending'
-    ];
-
-    const targetStart = new Date(startDate).getTime();
-    const targetReturn = new Date(returnDate).getTime();
-
-    return requests.some((req) => {
-      if (req.rentalItemId !== rentalItemId) return false;
-      if (excludeRequestId && req.id === excludeRequestId) return false;
-      if (!activeBlockingStatuses.includes(req.status)) return false;
-
-      const reqStart = new Date(req.startDate).getTime();
-      const reqReturn = new Date(req.returnDate).getTime();
-
-      // Check if [targetStart, targetReturn] overlaps with [reqStart, reqReturn]
-      return targetStart <= reqReturn && targetReturn >= reqStart;
-    });
-  },
-
-  createRentalRequest(requestData: Omit<RentalRequest, 'id' | 'createdAt' | 'updatedAt'>): RentalRequest {
-    const requests = this.getRentalRequests();
-    const newReq: RentalRequest = {
-      ...requestData,
-      id: `rental-req-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const updated = [newReq, ...requests];
-    this.saveRentalRequests(updated);
-
-    // Create notification for owner
-    this.addCampusNotification(
-      'New Rental Request!',
-      `${newReq.renterName} requested to rent "${newReq.rentalItemName}" from ${newReq.startDate} to ${newReq.returnDate}.`,
-      'rental_request',
-      'rent',
-      newReq.id
+  createOrGetConversation(
+    otherUserId: string, 
+    otherUserName: string, 
+    currentUserId: string, 
+    currentUserName: string,
+    listing?: Listing
+  ): ChatConversation {
+    const convos = this.getChatConversations();
+    const existing = convos.find(c => 
+      c.participants?.some(p => p.id === otherUserId) || c.id === `chat-${otherUserId}`
     );
 
-    return newReq;
-  },
+    if (existing) {
+      return existing;
+    }
 
-  updateRentalRequestStatus(id: string, status: RentalStatus, extraData?: Partial<RentalRequest>): RentalRequest | null {
-    const requests = this.getRentalRequests();
-    let updatedReq: RentalRequest | null = null;
-    const now = new Date().toISOString();
-
-    const updated = requests.map((req) => {
-      if (req.id === id) {
-        updatedReq = {
-          ...req,
-          status,
-          updatedAt: now,
-          ...(extraData || {}),
-        };
-
-        // If status transitions to Approved, mark item availability if needed
-        if (status === 'Approved' || status === 'Rented Out') {
-          this.updateRentalItem(req.rentalItemId, { isAvailable: false });
-        } else if (status === 'Completed' || status === 'Rejected' || status === 'Cancelled') {
-          // If no other active booking, set item back to available
-          const hasOtherActive = this.getRentalRequests().some(
-            (other) => other.id !== id && other.rentalItemId === req.rentalItemId && 
-              ['Approved', 'Rented Out', 'Ready for Handover', 'Return Pending'].includes(other.status)
-          );
-          if (!hasOtherActive) {
-            this.updateRentalItem(req.rentalItemId, { isAvailable: true });
+    const newConvo: ChatConversation = {
+      id: `chat-${Date.now()}`,
+      type: 'direct',
+      name: otherUserName,
+      participants: [
+        { id: otherUserId, name: otherUserName, role: 'Peer' },
+        { id: currentUserId, name: currentUserName, role: 'Me' }
+      ],
+      lastMessage: listing ? `Hi! I'm inquiring about "${listing.title}".` : 'Started a conversation.',
+      lastMessageTime: 'Just now',
+      unreadCount: 0,
+      messages: listing ? [
+        {
+          id: `msg-${Date.now()}`,
+          senderId: currentUserId,
+          senderName: currentUserName,
+          text: `Hi! I'm inquiring about "${listing.title}".`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          sharedListing: {
+            id: listing.id,
+            title: listing.title,
+            price: listing.price,
+            imageUrl: listing.imageUrl
           }
         }
+      ] : []
+    };
 
-        return updatedReq;
-      }
-      return req;
-    });
+    const updated = [newConvo, ...convos];
+    this.saveChatConversations(updated);
+    return newConvo;
+  },
 
-    if (updatedReq) {
-      this.saveRentalRequests(updated);
+  sendChatMessage(
+    conversationId: string, 
+    text: string, 
+    senderIdOrListing?: string | ChatMessage['sharedListing'], 
+    senderName = 'Me', 
+    sharedListing?: ChatMessage['sharedListing']
+  ): ChatConversation[] {
+    let actualSenderId = 'user-current';
+    let actualSenderName = senderName;
+    let actualSharedListing = sharedListing;
 
-      // Notification triggers based on status
-      if (status === 'Approved') {
-        this.addCampusNotification(
-          'Rental Request Approved!',
-          `Your rental request for "${(updatedReq as RentalRequest).rentalItemName}" was approved. Please arrange handover.`,
-          'rental_approved',
-          'rent',
-          id
-        );
-      } else if (status === 'Rejected') {
-        this.addCampusNotification(
-          'Rental Request Declined',
-          `Your rental request for "${(updatedReq as RentalRequest).rentalItemName}" was declined by the owner.`,
-          'rental_rejected',
-          'rent',
-          id
-        );
-      }
+    if (typeof senderIdOrListing === 'object' && senderIdOrListing !== null) {
+      actualSharedListing = senderIdOrListing;
+    } else if (typeof senderIdOrListing === 'string') {
+      actualSenderId = senderIdOrListing;
     }
-    return updatedReq;
-  },
 
-  // Record item condition at campus handover
-  recordHandoverCondition(id: string, notes: string): RentalRequest | null {
-    return this.updateRentalRequestStatus(id, 'Rented Out', {
-      depositStatus: 'Paid',
-      handoverConditionNotes: notes,
-      handoverConfirmedAt: new Date().toISOString(),
+    const convos = this.getChatConversations();
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const updated = convos.map(c => {
+      if (c.id === conversationId) {
+        const newMsg: ChatMessage = {
+          id: `msg-${Date.now()}`,
+          senderId: actualSenderId,
+          senderName: actualSenderName,
+          text,
+          timestamp: timeStr,
+          sharedListing: actualSharedListing
+        };
+        return {
+          ...c,
+          lastMessage: text,
+          lastMessageTime: timeStr,
+          messages: [...(c.messages || []), newMsg]
+        };
+      }
+      return c;
     });
+
+    return this.saveChatConversations(updated);
   },
 
-  // Renter reports return
-  confirmRenterReturn(id: string): RentalRequest | null {
-    return this.updateRentalRequestStatus(id, 'Inspection Pending', {
-      returnReportedAt: new Date().toISOString(),
-    });
+  // --- VIRTUAL PET & SAVINGS HELPERS ---
+  getVirtualPet(): any {
+    try {
+      const stored = localStorage.getItem('campusloop_real_pet_v1');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return {
+      name: 'Boba',
+      level: 1,
+      exp: 15,
+      hunger: 80,
+      happiness: 85,
+      energy: 90,
+      mood: 'happy',
+      petType: 'kitten',
+      lastFed: 'Today',
+      equippedItem: null,
+      unlockedItems: []
+    };
   },
 
-  // Owner inspects returned item
-  recordReturnInspection(
-    id: string, 
-    returnNotes: string, 
-    passed: boolean, 
-    proposedDeduction = 0, 
-    deductionReason?: string
-  ): RentalRequest | null {
-    if (passed) {
-      // Inspection passed: full deposit refund approved
-      return this.updateRentalRequestStatus(id, 'Refund Pending', {
-        inspectionPassed: true,
-        returnConditionNotes: returnNotes,
-        proposedDeduction: 0,
-        refundAmount: undefined, // will be approved next
-      });
-    } else {
-      // Damage or missing items reported: initiate Dispute flow
-      const updated = this.updateRentalRequestStatus(id, 'Dispute', {
-        depositStatus: 'Dispute',
-        inspectionPassed: false,
-        returnConditionNotes: returnNotes,
-        proposedDeduction,
-        deductionReason: deductionReason || 'Condition damage or missing accessories',
-        disputeNotes: `Owner reported issue: "${deductionReason}". Proposed deduction: RM ${proposedDeduction}.`,
-      });
+  updateVirtualPet(pet: any): any {
+    try {
+      localStorage.setItem('campusloop_real_pet_v1', JSON.stringify(pet));
+    } catch {}
+    return pet;
+  },
 
-      this.addCampusNotification(
-        'Rental Inspection Dispute',
-        `A deduction of RM ${proposedDeduction} was proposed for "${updated?.rentalItemName}". Please review the inspection notes.`,
-        'rental_dispute',
-        'rent',
-        id
-      );
+  getSavingsGoals(): any[] {
+    try {
+      const stored = localStorage.getItem('campusloop_real_savings_v1');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [];
+  },
 
-      return updated;
+  saveSavingsGoals(goals: any[]): any[] {
+    try {
+      localStorage.setItem('campusloop_real_savings_v1', JSON.stringify(goals));
+    } catch {}
+    return goals;
+  },
+
+  // --- USER PROFILE ---
+  getUserProfile(): UserProfile {
+    try {
+      const stored = localStorage.getItem(PROFILE_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.warn('Could not read user profile:', e);
     }
+    return {
+      name: '',
+      studentId: '',
+      email: '',
+      faculty: 'Faculty of Computing (FC)',
+      dorm: 'Kolej Rahman Putra (KRP)',
+      contactHandle: '',
+      avatarUrl: '',
+      verifiedStudent: false,
+      role: 'both',
+      verifiedTransactionsCount: 0,
+      savedListingIds: [],
+    };
   },
 
-  // Renter and Owner resolve dispute
-  resolveDispute(id: string, agreedRefundAmount: number, disputeNotes: string, renterResponse?: string): RentalRequest | null {
-    return this.updateRentalRequestStatus(id, 'Refund Pending', {
-      depositStatus: 'Refund Pending',
-      refundAmount: agreedRefundAmount,
-      disputeNotes,
-      renterDisputeResponse: renterResponse,
-    });
+  updateUserProfile(updatedProfile: UserProfile): UserProfile {
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(updatedProfile));
+    } catch (e) {
+      console.error('Failed to update user profile:', e);
+    }
+    return updatedProfile;
   },
 
-  // Owner approves deposit refund
-  approveDepositRefund(id: string, refundAmount: number): RentalRequest | null {
-    const updated = this.updateRentalRequestStatus(id, 'Completed', {
-      depositStatus: 'Refunded',
-      refundAmount,
-      refundDate: new Date().toISOString(),
-    });
+  updateUserRole(role: UserRole): UserProfile {
+    const profile = this.getUserProfile();
+    const updated = { ...profile, role };
+    return this.updateUserProfile(updated);
+  },
 
-    this.addCampusNotification(
-      'Deposit Refund Approved! 💸',
-      `Deposit refund of RM ${refundAmount.toFixed(2)} has been recorded for "${updated?.rentalItemName}".`,
-      'rental_refunded',
-      'me',
-      id
-    );
+  setUserRole(role: UserRole): UserProfile {
+    return this.updateUserRole(role);
+  },
 
+  toggleSaveListing(listingId: string): string[] {
+    const profile = this.getUserProfile();
+    const favs = profile.savedListingIds || [];
+    const exists = favs.includes(listingId);
+    const updatedFavs = exists ? favs.filter(id => id !== listingId) : [...favs, listingId];
+    this.updateUserProfile({ ...profile, savedListingIds: updatedFavs });
+    return updatedFavs;
+  },
+
+  toggleFavorite(listingId: string): string[] {
+    return this.toggleSaveListing(listingId);
+  },
+
+  // --- REVIEWS ---
+  getReviews(): Review[] {
+    try {
+      const stored = localStorage.getItem(REVIEWS_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.warn('Could not read reviews:', e);
+    }
+    return [];
+  },
+
+  addReview(reviewData: Omit<Review, 'id' | 'createdAt'>): Review {
+    const current = this.getReviews();
+    const newRev: Review = {
+      ...reviewData,
+      id: `rev-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [newRev, ...current];
+    try {
+      localStorage.setItem(REVIEWS_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to save review:', e);
+    }
+    return newRev;
+  },
+
+  reportReview(reviewId: string): Review[] {
+    const current = this.getReviews();
+    const updated = current.map(r => r.id === reviewId ? { ...r, reported: true } : r);
+    try {
+      localStorage.setItem(REVIEWS_KEY, JSON.stringify(updated));
+    } catch {}
     return updated;
   },
 
-  // --- NOTIFICATIONS MANAGEMENT ---
+  // --- NOTIFICATIONS ---
   getNotifications(): CampusNotification[] {
     try {
       const stored = localStorage.getItem(NOTIFICATIONS_KEY);
@@ -755,10 +917,7 @@ export const storageService = {
     } catch (e) {
       console.warn('Could not read notifications:', e);
     }
-    try {
-      localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(INITIAL_NOTIFICATIONS));
-    } catch {}
-    return INITIAL_NOTIFICATIONS;
+    return [];
   },
 
   saveNotifications(notifs: CampusNotification[]): CampusNotification[] {
@@ -788,7 +947,6 @@ export const storageService = {
     return this.saveNotifications([]);
   },
 
-  // Notification helper
   addCampusNotification(
     title: string, 
     message: string, 
@@ -814,25 +972,26 @@ export const storageService = {
     return newNotif;
   },
 
-  // --- PROTOTYPE RESET ---
+  // Clear all data for clean reset without fake data
   resetPrototypeData() {
-    localStorage.setItem(LISTINGS_KEY, JSON.stringify(INITIAL_LISTINGS));
-    localStorage.setItem(REQUESTS_KEY, JSON.stringify(INITIAL_TRADE_REQUESTS));
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(INITIAL_USER_PROFILE));
-    localStorage.setItem(REVIEWS_KEY, JSON.stringify(INITIAL_REVIEWS));
-    localStorage.setItem(CHATS_KEY, JSON.stringify(INITIAL_CHAT_CONVERSATIONS));
-    localStorage.setItem(CART_KEY, JSON.stringify(INITIAL_CART));
-    localStorage.setItem(RENTAL_ITEMS_KEY, JSON.stringify(INITIAL_RENTAL_ITEMS));
-    localStorage.setItem(RENTAL_REQUESTS_KEY, JSON.stringify(INITIAL_RENTAL_REQUESTS));
+    localStorage.removeItem(LISTINGS_KEY);
+    localStorage.removeItem(REQUESTS_KEY);
+    localStorage.removeItem(PROFILE_KEY);
+    localStorage.removeItem(REVIEWS_KEY);
+    localStorage.removeItem(CHATS_KEY);
+    localStorage.removeItem(CART_KEY);
+    localStorage.removeItem(RENTAL_ITEMS_KEY);
+    localStorage.removeItem(RENTAL_REQUESTS_KEY);
+    localStorage.removeItem(NOTIFICATIONS_KEY);
     return {
-      listings: INITIAL_LISTINGS,
-      requests: INITIAL_TRADE_REQUESTS,
-      profile: INITIAL_USER_PROFILE,
-      reviews: INITIAL_REVIEWS,
-      chats: INITIAL_CHAT_CONVERSATIONS,
-      cart: INITIAL_CART,
-      rentalItems: INITIAL_RENTAL_ITEMS,
-      rentalRequests: INITIAL_RENTAL_REQUESTS,
+      listings: [],
+      requests: [],
+      profile: this.getUserProfile(),
+      reviews: [],
+      chats: [],
+      cart: [],
+      rentalItems: [],
+      rentalRequests: [],
     };
   }
 };

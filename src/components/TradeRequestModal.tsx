@@ -15,6 +15,8 @@ interface TradeRequestModalProps {
   onClose: () => void;
   onSubmit?: (requestData: Omit<TradeRequest, 'id' | 'createdAt' | 'status' | 'isSentByCurrentUser'>) => void;
   onSubmitRequest?: (requestData: Omit<TradeRequest, 'id' | 'createdAt' | 'status' | 'isSentByCurrentUser'>) => void;
+  currentUserName?: string;
+  currentUserEmail?: string;
 }
 
 export const TradeRequestModal: React.FC<TradeRequestModalProps> = ({
@@ -22,12 +24,14 @@ export const TradeRequestModal: React.FC<TradeRequestModalProps> = ({
   onClose,
   onSubmit,
   onSubmitRequest,
+  currentUserName = 'UTM Student',
+  currentUserEmail = '',
 }) => {
   if (!listing) return null;
 
   const [offeredPrice, setOfferedPrice] = useState<string>(listing.price.toString());
-  const [buyerName, setBuyerName] = useState('Alex Tan (You)');
-  const [buyerContact, setBuyerContact] = useState('012-345-6789');
+  const [buyerName, setBuyerName] = useState(currentUserName);
+  const [buyerContact, setBuyerContact] = useState(currentUserEmail || '012-345-6789');
   const [pickupLocation, setPickupLocation] = useState(listing.campusLocation || listing.location || 'Central Library Foyer');
   const [message, setMessage] = useState(
     `Hi ${listing.sellerName}! I am interested in "${listing.title}". Can we arrange a meetup this week?`
@@ -58,7 +62,7 @@ export const TradeRequestModal: React.FC<TradeRequestModalProps> = ({
       listingPrice: listing.price,
       listingImage: listing.imageUrl,
       sellerName: listing.sellerName,
-      buyerName: buyerName.trim() || 'Alex Tan',
+      buyerName: buyerName.trim() || currentUserName,
       buyerContact: buyerContact.trim(),
       offeredPrice: numPrice,
       pickupLocation: pickupLocation || listing.campusLocation || 'Campus Meetup Point',

@@ -116,7 +116,7 @@ export default function App() {
     loadAllData();
 
     // Subscribe to auth state updates
-    const unsubscribe = authService.onAuthChange((user) => {
+    const unsubscribeAuth = authService.onAuthChange((user) => {
       setCurrentUser(user);
       setAccountState(authService.getAccountState());
       if (user) {
@@ -133,7 +133,26 @@ export default function App() {
       }
     });
 
-    return () => unsubscribe();
+    // Real-time Firestore subscriptions for listings and rentals
+    const unsubscribeListings = storageService.subscribeToListings((realListings) => {
+      setListings(realListings);
+    });
+
+    const unsubscribeRentals = storageService.subscribeToRentalItems((realRentals) => {
+      setRentalItems(realRentals);
+    });
+
+    const handleOpenListing = () => {
+      handleOpenCreateListingModal();
+    };
+    window.addEventListener('campusloop:open-create-listing', handleOpenListing);
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeListings();
+      unsubscribeRentals();
+      window.removeEventListener('campusloop:open-create-listing', handleOpenListing);
+    };
   }, []);
 
   // ==========================================
@@ -222,7 +241,7 @@ export default function App() {
   };
 
   // Cart Handover Checkout (Student-to-student peer request)
-  const handleCartCheckoutSubmit = (
+  const handleCartCheckoutSubmit = async (
     selectedItems: CartItem[],
     handoverLocation: string,
     preferredTime: string,
@@ -232,26 +251,31 @@ export default function App() {
 
     const effectiveName = currentUser?.name || userProfile.name;
     const effectiveEmail = currentUser?.email || userProfile.email;
+    const effectiveId = currentUser?.id || 'uid';
 
-    selectedItems.forEach((item) => {
-      const newReq = storageService.createTradeRequest({
+    const createdRequests: TradeRequest[] = [];
+
+    for (const item of selectedItems) {
+      const newReq = await storageService.createTradeRequest({
         listingId: item.listingId,
         listingTitle: item.listing.title,
         listingPrice: item.listing.price,
         listingImage: item.listing.imageUrl,
         sellerName: item.listing.sellerName,
         buyerName: effectiveName,
-        buyerContact: effectiveEmail || '012-345-6789',
+        buyerContact: effectiveEmail || '',
         offeredPrice: item.listing.price * item.quantity,
         pickupLocation: handoverLocation,
         message: `${notes} (Qty: ${item.quantity}, Preferred Time: ${preferredTime})`,
       });
-      setTradeRequests((prev) => [newReq, ...prev]);
+      createdRequests.push(newReq);
 
       // Notify seller via direct message
       storageService.sendChatMessage(
         `chat-${item.listing.sellerName.toLowerCase().replace(/\s+/g, '-')}`,
         `Hi ${item.listing.sellerName}! I submitted a handover request for "${item.listing.title}" at ${handoverLocation} (${preferredTime}).`,
+        effectiveId,
+        effectiveName,
         {
           id: item.listing.id,
           title: item.listing.title,
@@ -259,7 +283,9 @@ export default function App() {
           imageUrl: item.listing.imageUrl,
         }
       );
-    });
+    }
+
+    setTradeRequests((prev) => [...createdRequests, ...prev]);
 
     const updatedCart = storageService.clearSelectedCartItems();
     setCart(updatedCart);
@@ -365,12 +391,15 @@ export default function App() {
     setIsCreateModalOpen(true);
   };
 
-  const handleCreateListing = (newListingData: any) => {
+  const handleCreateListing = async (newListingData: any) => {
     if (!ensureVerifiedUtmUser('publish a product listing')) return;
 
-    const created = storageService.createListing({
+    const created = await storageService.createListing({
       ...newListingData,
+      sellerId: currentUser?.id || 'uid',
       sellerName: currentUser?.name || userProfile.name,
+      sellerContact: currentUser?.email || userProfile.email,
+      sellerFaculty: currentUser?.faculty || userProfile.faculty,
       sellerAvatar: currentUser?.avatarUrl || userProfile.avatarUrl,
     });
     setListings((prev) => [created, ...prev]);
@@ -379,11 +408,12 @@ export default function App() {
   };
 
   // --- TRADE REQUEST FROM MODAL ---
-  const handleTradeRequestSubmit = (requestData: any) => {
+  const handleTradeRequestSubmit = async (requestData: any) => {
     if (!ensureVerifiedUtmUser('submit purchase requests')) return;
 
-    const newReq = storageService.createTradeRequest({
+    const newReq = await storageService.createTradeRequest({
       ...requestData,
+      buyerId: currentUser?.id || 'uid',
       buyerName: currentUser?.name || userProfile.name,
       buyerContact: currentUser?.email || userProfile.email,
     });
@@ -393,6 +423,8 @@ export default function App() {
     storageService.sendChatMessage(
       `chat-${newReq.sellerName.toLowerCase().replace(/\s+/g, '-')}`,
       `Hi ${newReq.sellerName}! I submitted an offer of RM ${newReq.offeredPrice.toFixed(2)} for "${newReq.listingTitle}". Handover at ${newReq.pickupLocation}.`,
+      currentUser?.id || 'buyer',
+      currentUser?.name || 'Buyer',
       {
         id: newReq.listingId,
         title: newReq.listingTitle,
@@ -412,8 +444,9 @@ export default function App() {
   const handleUpdateTradeStatus = (requestId: string, status: RequestStatus) => {
     if (!ensureVerifiedUtmUser('update trade status')) return;
 
-    const updated = storageService.updateTradeRequestStatus(requestId, status);
-    setTradeRequests(updated);
+    storageService.updateTradeRequestStatus(requestId, status).then((updated) => {
+      setTradeRequests(updated);
+    });
     addToast('info', `Status Updated: ${status}`, 'Trade status updated.');
   };
 
@@ -422,7 +455,7 @@ export default function App() {
   // ==========================================
 
   // Step 4: Renter submits a rental request
-  const handleRequestRent = (reqData: {
+  const handleRequestRent = async (reqData: {
     rentalItemId: string;
     startDate: string;
     returnDate: string;
@@ -441,17 +474,18 @@ export default function App() {
 
     const effectiveName = currentUser?.name || userProfile.name;
     const effectiveEmail = currentUser?.email || userProfile.email;
+    const effectiveId = currentUser?.id || 'renter';
 
-    const newReq = storageService.createRentalRequest({
+    const newReq = await storageService.createRentalRequest({
       rentalItemId: item.id,
       rentalItemName: item.name,
       rentalItemImage: item.imageUrl,
-      ownerId: item.ownerId || 'owner-sample',
+      ownerId: (item as any).ownerId || item.ownerContact || item.ownerName,
       ownerName: item.ownerName,
-      ownerContact: item.ownerContact || '012-987-6543',
-      renterId: currentUser?.studentId || userProfile.studentId || 'user-alex',
+      ownerContact: item.ownerContact || '',
+      renterId: effectiveId,
       renterName: effectiveName,
-      renterContact: effectiveEmail || '012-345-6789',
+      renterContact: effectiveEmail || '',
       startDate: reqData.startDate,
       returnDate: reqData.returnDate,
       days: reqData.days,
@@ -473,6 +507,8 @@ export default function App() {
     storageService.sendChatMessage(
       `chat-${item.ownerName.toLowerCase().replace(/\s+/g, '-')}`,
       `Hi ${item.ownerName}! I submitted a rental request for "${item.name}" from ${reqData.startDate} to ${reqData.returnDate} (${reqData.days} days). Total: RM ${reqData.totalBeforeRental.toFixed(2)} (Fee: RM ${reqData.rentalFeeTotal} + Deposit: RM ${reqData.securityDeposit}).`,
+      effectiveId,
+      effectiveName,
       {
         id: item.id,
         title: item.name,
@@ -502,20 +538,24 @@ export default function App() {
   };
 
   // List an item for rent (or update existing)
-  const handleCreateOrUpdateRentalListing = (data: Omit<RentalItem, 'id' | 'createdAt'>) => {
+  const handleCreateOrUpdateRentalListing = async (data: Omit<RentalItem, 'id' | 'createdAt'>) => {
     if (!ensureVerifiedUtmUser('publish or update rental listings')) return;
 
     const effectiveName = currentUser?.name || userProfile.name;
+    const effectiveEmail = currentUser?.email || userProfile.email;
+    const effectiveId = currentUser?.id || 'owner';
 
     if (editingRentalItem) {
-      storageService.updateRentalItem(editingRentalItem.id, data);
+      await storageService.updateRentalItem(editingRentalItem.id, data);
       addToast('success', 'Rental Item Updated!', `"${data.name}" details updated.`);
       setEditingRentalItem(null);
     } else {
-      const created = storageService.createRentalItem({
+      const created = await storageService.createRentalItem({
         ...data,
+        ownerId: effectiveId,
         ownerName: effectiveName,
-        ownerAvatar: currentUser?.avatarUrl || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80`,
+        ownerContact: effectiveEmail,
+        ownerAvatar: currentUser?.avatarUrl,
         isUserCreated: true,
       });
       addToast('success', 'Rental Listed!', `"${created.name}" is now available for students to rent.`);
@@ -672,16 +712,14 @@ export default function App() {
   const handleUpdateProfile = (updated: Partial<UserProfile>) => {
     const next = { ...userProfile, ...updated };
     setUserProfile(next);
-    try {
-      localStorage.setItem('campusloop_user_profile_v4', JSON.stringify(next));
-    } catch {}
+    storageService.updateUserProfile(next);
   };
 
   // Reset Prototype Data
   const handleResetData = () => {
     storageService.resetPrototypeData();
     loadAllData();
-    addToast('success', 'Reset Complete', 'Fresh sample marketplace & rental data restored.');
+    addToast('info', 'Marketplace Cleared', 'Marketplace data reset. Ready for genuine student listings.');
   };
 
   // Navigate to Mall with specific category
@@ -774,6 +812,7 @@ export default function App() {
           <ChatView
             conversations={conversations}
             listings={listings}
+            currentUser={currentUser}
             activeConversationId={activeChatId}
             onSelectConversation={setActiveChatId}
             onSelectListing={(item) => setDetailModalListing(item)}
@@ -857,6 +896,8 @@ export default function App() {
       {tradeModalListing && (
         <TradeRequestModal
           listing={tradeModalListing}
+          currentUserName={currentUser?.name || userProfile.name}
+          currentUserEmail={currentUser?.email || userProfile.email}
           onClose={() => setTradeModalListing(null)}
           onSubmit={handleTradeRequestSubmit}
         />

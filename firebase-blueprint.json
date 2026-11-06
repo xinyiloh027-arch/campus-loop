@@ -1,0 +1,189 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered UTM student or staff member profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256, "pattern": "^[a-zA-Z0-9._%+-]+@(graduate\\.utm\\.my|student\\.utm\\.my|utm\\.my)$" },
+        "name": { "type": "string", "maxLength": 100 },
+        "studentId": { "type": "string", "maxLength": 50 },
+        "faculty": { "type": "string", "maxLength": 100 },
+        "dorm": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["student", "staff"] },
+        "accountState": { "type": "string", "enum": ["Signed Out", "Email Verification Pending", "Verified UTM Member", "Suspended"] },
+        "emailVerified": { "type": "boolean" },
+        "isSuspended": { "type": "boolean" },
+        "avatarUrl": { "type": "string", "maxLength": 1000 },
+        "contactHandle": { "type": "string", "maxLength": 100 },
+        "verifiedTransactionsCount": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "email", "name", "role", "accountState", "emailVerified", "createdAt"]
+    },
+    "Listing": {
+      "title": "Listing",
+      "description": "A marketplace product listed for sale or trade by a verified UTM student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "price": { "type": "number" },
+        "category": { "type": "string", "maxLength": 100 },
+        "condition": { "type": "string", "enum": ["Brand New", "Like New", "Good", "Fair"] },
+        "location": { "type": "string", "maxLength": 150 },
+        "campusLocation": { "type": "string", "maxLength": 150 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "sellerId": { "type": "string", "maxLength": 128 },
+        "sellerName": { "type": "string", "maxLength": 100 },
+        "sellerContact": { "type": "string", "maxLength": 100 },
+        "sellerFaculty": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["Active", "Reserved", "Completed", "Removed"] },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["title", "description", "price", "category", "condition", "sellerId", "sellerName", "status", "createdAt"]
+    },
+    "RentalItem": {
+      "title": "RentalItem",
+      "description": "An item listed for peer-to-peer campus rental",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "category": { "type": "string", "maxLength": 100 },
+        "condition": { "type": "string", "enum": ["Brand New", "Like New", "Good", "Fair"] },
+        "pricePerDay": { "type": "number" },
+        "securityDeposit": { "type": "number" },
+        "pickupLocation": { "type": "string", "maxLength": 150 },
+        "rentalRules": { "type": "string", "maxLength": 1000 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "ownerName": { "type": "string", "maxLength": 100 },
+        "ownerContact": { "type": "string", "maxLength": 100 },
+        "ownerFaculty": { "type": "string", "maxLength": 100 },
+        "isAvailable": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["name", "description", "category", "condition", "pricePerDay", "securityDeposit", "pickupLocation", "ownerId", "ownerName", "isAvailable", "createdAt"]
+    },
+    "TradeRequest": {
+      "title": "TradeRequest",
+      "description": "A purchase or trade offer sent by a student buyer to a seller",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "listingId": { "type": "string", "maxLength": 128 },
+        "listingTitle": { "type": "string", "maxLength": 150 },
+        "listingPrice": { "type": "number" },
+        "listingImage": { "type": "string", "maxLength": 1000 },
+        "buyerId": { "type": "string", "maxLength": 128 },
+        "buyerName": { "type": "string", "maxLength": 100 },
+        "buyerContact": { "type": "string", "maxLength": 100 },
+        "sellerId": { "type": "string", "maxLength": 128 },
+        "sellerName": { "type": "string", "maxLength": 100 },
+        "offeredPrice": { "type": "number" },
+        "pickupLocation": { "type": "string", "maxLength": 150 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["Pending", "Accepted", "Rejected", "Completed"] },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["listingId", "buyerId", "buyerName", "sellerId", "sellerName", "offeredPrice", "status", "createdAt"]
+    },
+    "RentalRequest": {
+      "title": "RentalRequest",
+      "description": "A rental booking request submitted by a renter to an item owner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "rentalItemId": { "type": "string", "maxLength": 128 },
+        "rentalItemName": { "type": "string", "maxLength": 150 },
+        "renterId": { "type": "string", "maxLength": 128 },
+        "renterName": { "type": "string", "maxLength": 100 },
+        "renterContact": { "type": "string", "maxLength": 100 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "ownerName": { "type": "string", "maxLength": 100 },
+        "startDate": { "type": "string", "maxLength": 50 },
+        "returnDate": { "type": "string", "maxLength": 50 },
+        "days": { "type": "number" },
+        "dailyRate": { "type": "number" },
+        "rentalFee": { "type": "number" },
+        "depositAmount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "pickupLocation": { "type": "string", "maxLength": 150 },
+        "purpose": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Ready for Handover", "Rented Out", "Return Pending", "Inspection Pending", "Refund Pending", "Completed", "Dispute", "Rejected", "Cancelled"] },
+        "depositStatus": { "type": "string", "enum": ["Pending", "Paid", "Refund Pending", "Refunded", "Dispute", "Deducted"] },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["rentalItemId", "renterId", "renterName", "ownerId", "ownerName", "startDate", "returnDate", "status", "createdAt"]
+    },
+    "ChatConversation": {
+      "title": "ChatConversation",
+      "description": "A direct messaging channel between two verified UTM students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "participantIds": { "type": "array" },
+        "buyerId": { "type": "string", "maxLength": 128 },
+        "buyerName": { "type": "string", "maxLength": 100 },
+        "sellerId": { "type": "string", "maxLength": 128 },
+        "sellerName": { "type": "string", "maxLength": 100 },
+        "listingId": { "type": "string", "maxLength": 128 },
+        "listingTitle": { "type": "string", "maxLength": 150 },
+        "lastMessage": { "type": "string", "maxLength": 1000 },
+        "lastMessageTime": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["participantIds", "buyerId", "sellerId", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "A single chat message within a conversation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "conversationId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 100 },
+        "text": { "type": "string", "maxLength": 1000 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "isRead": { "type": "boolean" }
+      },
+      "required": ["conversationId", "senderId", "senderName", "text", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "UTM student and staff user profiles"
+    },
+    "/listings/{listingId}": {
+      "schema": "Listing",
+      "description": "Marketplace products listed for sale or trade"
+    },
+    "/rentals/{rentalId}": {
+      "schema": "RentalItem",
+      "description": "Peer-to-peer equipment and items listed for rent"
+    },
+    "/trades/{tradeId}": {
+      "schema": "TradeRequest",
+      "description": "Purchase requests between buyers and sellers"
+    },
+    "/rentalRequests/{rentalRequestId}": {
+      "schema": "RentalRequest",
+      "description": "Rental booking requests and deposit tracking"
+    },
+    "/conversations/{conversationId}": {
+      "schema": "ChatConversation",
+      "description": "Chat channels between buyers and sellers"
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Direct chat messages between conversation participants"
+    }
+  }
+}

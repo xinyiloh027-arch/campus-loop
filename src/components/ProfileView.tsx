@@ -36,11 +36,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 }) => {
   const [resetDone, setResetDone] = useState(false);
 
-  // Reviews where Alex Tan is the reviewee
-  const myReviews = reviews.filter((r) => r.revieweeName.includes('Alex Tan'));
+  // Reviews where current user is the reviewee
+  const myReviews = reviews.filter((r) => r.revieweeName === profile.name);
   const avgRating = myReviews.length > 0
     ? (myReviews.reduce((sum, r) => sum + r.rating, 0) / myReviews.length).toFixed(1)
-    : '5.0';
+    : 'New';
 
   const handleResetClick = () => {
     if (window.confirm('Reset all prototype listings, trade requests, chats, budget entries, and reviews back to fresh sample data?')) {

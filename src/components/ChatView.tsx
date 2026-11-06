@@ -10,7 +10,7 @@ import {
   User,
   ShoppingBag
 } from 'lucide-react';
-import { ChatConversation, ChatMessage, Listing } from '../types';
+import { ChatConversation, ChatMessage, Listing, UTMUser } from '../types';
 import { storageService } from '../services/storageService';
 
 interface ChatViewProps {
@@ -20,6 +20,7 @@ interface ChatViewProps {
   onRefreshConversations: () => void;
   activeConversationId?: string;
   onSelectConversation?: (convoId: string) => void;
+  currentUser?: UTMUser | null;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -29,6 +30,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onRefreshConversations,
   activeConversationId,
   onSelectConversation,
+  currentUser,
 }) => {
   const [selectedConvoId, setSelectedConvoId] = useState<string>(
     activeConversationId || conversations[0]?.id || ''
@@ -68,19 +70,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
     c.name.toLowerCase().includes(searchFilter.toLowerCase().trim())
   );
 
-  return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-6 text-left">
-      
-      {/* Top Prototype Note */}
-      <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-100 text-xs text-blue-900 mb-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Info className="w-4 h-4 text-blue-600 shrink-0" />
-          <span>
-            <strong>Campus Messaging Prototype:</strong> Messages are stored locally in your browser to simulate student buyer-seller communication and negotiate campus meetups.
-          </span>
+  if (conversations.length === 0) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
+        <div className="w-20 h-20 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
+          <MessageSquare className="w-10 h-10" />
+        </div>
+        <div className="space-y-1.5 max-w-md mx-auto">
+          <h2 className="text-xl font-bold text-slate-900">
+            Your conversations will appear here once you connect with another student.
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+            Inquire on a product listing or respond to buyer purchase requests to chat and coordinate campus meetups.
+          </p>
         </div>
       </div>
+    );
+  }
 
+  return (
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-6 text-left">
       {/* Main Chat Container */}
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden flex h-[620px]">
         
@@ -219,7 +228,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 ) : (
                   activeConvo.messages.map((msg) => {
-                    const isMe = msg.senderId === 'user-current' || msg.senderName === 'Alex Tan';
+                    const isMe = 
+                      msg.senderId === 'user-current' || 
+                      msg.senderName === 'Me' ||
+                      (!!currentUser?.id && msg.senderId === currentUser.id) ||
+                      (!!currentUser?.name && msg.senderName === currentUser.name);
                     return (
                       <div
                         key={msg.id}

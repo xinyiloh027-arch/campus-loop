@@ -417,51 +417,10 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
                 <button
                   type="button"
                   onClick={() => handleSwitchMode('register')}
-                  className="font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                  className="font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2 cursor-pointer"
                 >
                   Create Account
                 </button>
-              </div>
-
-              {/* Instant Test Accounts Bar (for Grader Convenience) */}
-              <div className="pt-3 border-t border-slate-100 space-y-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Quick Testing Accounts (One-Click)
-                </span>
-                <div className="grid grid-cols-2 gap-1.5 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => fillQuickAccount('alex.tan@graduate.utm.my', 'UtmPass2026!')}
-                    className="p-1.5 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 text-left text-slate-700"
-                  >
-                    <strong className="block text-blue-700">Verified Student</strong>
-                    alex.tan@graduate...
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fillQuickAccount('nurul.huda@utm.my', 'UtmPass2026!')}
-                    className="p-1.5 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 text-left text-slate-700"
-                  >
-                    <strong className="block text-blue-700">Verified Staff</strong>
-                    nurul.huda@utm.my
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fillQuickAccount('newbie@student.utm.my', 'UtmPass2026!')}
-                    className="p-1.5 rounded-lg border border-slate-200 hover:border-amber-300 hover:bg-amber-50/50 text-left text-slate-700"
-                  >
-                    <strong className="block text-amber-700">Unverified Student</strong>
-                    newbie@student.utm.my
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fillQuickAccount('spammer@graduate.utm.my', 'UtmPass2026!')}
-                    className="p-1.5 rounded-lg border border-slate-200 hover:border-rose-300 hover:bg-rose-50/50 text-left text-slate-700"
-                  >
-                    <strong className="block text-rose-700">Suspended Account</strong>
-                    spammer@graduate...
-                  </button>
-                </div>
               </div>
             </form>
           )}
@@ -606,35 +565,14 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
                 </p>
               </div>
 
-              {/* Simulated UTM Inbox Preview (for instant evaluation without token leakage in logs) */}
-              {simulatedInboxPreview && (
-                <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 text-xs space-y-1.5 text-blue-900">
-                  <div className="flex items-center justify-between font-bold">
-                    <span className="flex items-center gap-1">
-                      <Mail className="w-3.5 h-3.5 text-blue-600" />
-                      <span>UTM Mailbox Preview</span>
-                    </span>
-                    <span className="text-[10px] text-blue-600 bg-white px-2 py-0.5 rounded-full border border-blue-200">
-                      Inbox Notification
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-600">
-                    Subject: <em>CampusLoop Email Verification Code</em>
-                  </p>
-                  <div className="flex items-center justify-between bg-white p-2 rounded-xl border border-blue-100">
-                    <span className="font-mono text-sm font-black tracking-widest text-blue-700">
-                      {simulatedInboxPreview.code}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setVerificationCode(simulatedInboxPreview.code)}
-                      className="px-2.5 py-1 rounded-lg bg-blue-600 text-white font-bold text-[10px] hover:bg-blue-700"
-                    >
-                      Autofill Code
-                    </button>
-                  </div>
-                </div>
-              )}
+              <div className="p-3 bg-blue-50/80 rounded-2xl border border-blue-100 text-xs space-y-1 text-blue-900 text-center">
+                <p className="font-semibold">
+                  A verification link or 6-digit code was dispatched to your official UTM inbox.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Please check your inbox or spam folder, or click the link in your email.
+                </p>
+              </div>
 
               <div>
                 <label className="block font-bold text-slate-700 mb-1.5 text-center">

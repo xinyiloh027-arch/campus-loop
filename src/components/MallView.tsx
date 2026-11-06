@@ -315,14 +315,36 @@ export const MallView: React.FC<MallViewProps> = ({
       )}
 
       {/* Product Grid: 2 columns on mobile, 3-4 on larger screens */}
-      {filteredListings.length === 0 ? (
+      {listings.length === 0 ? (
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-12 text-center space-y-4 shadow-xs">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+            <Package className="w-8 h-8" />
+          </div>
+          <div className="space-y-1 max-w-sm mx-auto">
+            <h3 className="text-base font-bold text-slate-800">No products available yet. Be the first to list an item!</h3>
+            <p className="text-xs text-slate-500">
+              List your textbooks, notes, electronics, and dorm essentials for fellow UTM students.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              // Trigger listing modal if available or reset filters
+              const event = new CustomEvent('campusloop:open-create-listing');
+              window.dispatchEvent(event);
+            }}
+            className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-200 transition-all cursor-pointer"
+          >
+            + Create Listing
+          </button>
+        </div>
+      ) : filteredListings.length === 0 ? (
         <div className="bg-white rounded-3xl border border-slate-200/90 p-12 text-center space-y-3">
           <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
             <Package className="w-8 h-8" />
           </div>
           <h3 className="text-base font-bold text-slate-800">No products match your search or filters</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            Try resetting your price or category filters, or search for textbooks, electronics, or dorm gear.
+            Try resetting your price or category filters, or search for generic terms.
           </p>
           <button
             onClick={handleResetFilters}

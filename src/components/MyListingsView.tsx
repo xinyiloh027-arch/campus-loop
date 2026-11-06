@@ -15,8 +15,8 @@ export const MyListingsView: React.FC<MyListingsViewProps> = ({
   openCreateModal,
   onNavigateExplore,
 }) => {
-  // Items created by user or assigned to user Alex Tan
-  const myListings = listings.filter((l) => l.isUserCreated || l.sellerName.includes('Alex Tan'));
+  // Items created by user
+  const myListings = listings.filter((l) => l.isUserCreated);
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

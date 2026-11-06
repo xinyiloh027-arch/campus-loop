@@ -235,9 +235,15 @@ export const RentalDetailModal: React.FC<RentalDetailModalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500">{item.ownerFaculty || 'Campus Student'}</p>
-                <div className="flex items-center gap-1 text-amber-600 text-xs font-semibold mt-0.5">
-                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                  <span>{item.ownerRating || 4.9} rating &bull; Prompt handovers</span>
+                <div className="flex items-center gap-1 text-slate-500 text-xs font-semibold mt-0.5">
+                  {item.ownerRating ? (
+                    <>
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      <span className="text-amber-600 font-bold">{item.ownerRating} rating</span>
+                    </>
+                  ) : (
+                    <span>Campus Peer Owner</span>
+                  )}
                 </div>
               </div>
             </div>

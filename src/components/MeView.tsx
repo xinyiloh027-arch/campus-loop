@@ -117,34 +117,58 @@ export const MeView: React.FC<MeViewProps> = ({
   );
   const [rentalFilter, setRentalFilter] = useState<RentalFilter>('all');
   const [defaultSpot, setDefaultSpot] = useState(profile.dorm || POPULAR_CAMPUS_LOCATIONS[0]);
-  const [contactHandle, setContactHandle] = useState(profile.contactHandle || '@alex_tan');
+  const [contactHandle, setContactHandle] = useState(currentUser?.contactHandle || profile.contactHandle || '');
   const [savedSettingsMsg, setSavedSettingsMsg] = useState(false);
   const [resetConfirmMsg, setResetConfirmMsg] = useState(false);
 
   const isUserSignedIn = Boolean(currentUser) && accountState !== 'Signed Out';
   const effectiveEmail = currentUser?.email || profile.email;
   const effectiveName = currentUser?.name || profile.name;
+  const effectiveId = currentUser?.id;
 
-  // Protected User Data: Cleared when signed out
+  // Real User Listings: Matched by sellerId, sellerName, or user email
   const myListings = isUserSignedIn
-    ? listings.filter((l) => l.isUserCreated || l.sellerName === effectiveName || (currentUser && l.sellerName === currentUser.name))
+    ? listings.filter((l) => 
+        (effectiveId && (l as any).sellerId === effectiveId) ||
+        (effectiveEmail && l.sellerContact === effectiveEmail) ||
+        l.sellerName === effectiveName ||
+        l.isUserCreated
+      )
     : [];
 
   const myPurchases = isUserSignedIn
-    ? tradeRequests.filter((r) => r.isSentByCurrentUser || (currentUser && r.buyerName === currentUser.name))
+    ? tradeRequests.filter((r) => 
+        (effectiveId && (r as any).buyerId === effectiveId) ||
+        (effectiveEmail && r.buyerContact === effectiveEmail) ||
+        r.buyerName === effectiveName ||
+        r.isSentByCurrentUser
+      )
     : [];
 
   const mySales = isUserSignedIn
-    ? tradeRequests.filter((r) => !r.isSentByCurrentUser && (r.sellerName === effectiveName || (currentUser && r.sellerName === currentUser.name)))
+    ? tradeRequests.filter((r) => 
+        !r.isSentByCurrentUser && 
+        ((effectiveId && (r as any).sellerId === effectiveId) || r.sellerName === effectiveName)
+      )
     : [];
 
   // --- RENTAL FILTERING (Cleared when signed out) ---
   const myRentalListings = isUserSignedIn
-    ? rentalItems.filter((item) => item.isUserCreated || item.ownerName === effectiveName || (currentUser && item.ownerName === currentUser.name))
+    ? rentalItems.filter((item) => 
+        (effectiveId && (item as any).ownerId === effectiveId) ||
+        (effectiveEmail && item.ownerContact === effectiveEmail) ||
+        item.ownerName === effectiveName ||
+        item.isUserCreated
+      )
     : [];
 
   const myRentalRequests = isUserSignedIn
-    ? rentalRequests.filter((r) => r.isSentByCurrentUser || r.renterName === effectiveName || (currentUser && r.renterName === currentUser.name))
+    ? rentalRequests.filter((r) => 
+        (effectiveId && (r as any).renterId === effectiveId) ||
+        (effectiveEmail && r.renterContact === effectiveEmail) ||
+        r.renterName === effectiveName ||
+        r.isSentByCurrentUser
+      )
     : [];
 
   const itemsImRenting = isUserSignedIn
@@ -155,7 +179,9 @@ export const MeView: React.FC<MeViewProps> = ({
 
   const itemsRentedToOthers = isUserSignedIn
     ? rentalRequests.filter(
-        (r) => !r.isSentByCurrentUser && (r.ownerName === effectiveName || (currentUser && r.ownerName === currentUser.name))
+        (r) => 
+          !r.isSentByCurrentUser && 
+          ((effectiveId && (r as any).ownerId === effectiveId) || r.ownerName === effectiveName)
       )
     : [];
 
@@ -1413,8 +1439,8 @@ export const MeView: React.FC<MeViewProps> = ({
           {myPurchases.length === 0 ? (
             <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center space-y-2">
               <ArrowLeftRight className="w-10 h-10 text-slate-300 mx-auto" />
-              <p className="text-sm font-bold text-slate-800">No purchase requests sent yet</p>
-              <p className="text-xs text-slate-500">Add products to your cart or enquire directly on any item.</p>
+              <p className="text-sm font-bold text-slate-800">You don't have any transactions yet</p>
+              <p className="text-xs text-slate-500">When you submit purchase offers or arrange handovers with sellers, they will appear here.</p>
             </div>
           ) : (
             <div className="space-y-3">

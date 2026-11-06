@@ -124,9 +124,9 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
       imageUrl: finalImage,
       additionalImages: [finalImage],
       isActualPhoto: true,
-      sellerName: 'Alex Tan',
-      sellerContact: 'alex.tan@student.edu.my',
-      sellerFaculty: 'FCSIT (Year 2)',
+      sellerName: '', // will be set from authenticated user
+      sellerContact: '',
+      sellerFaculty: '',
       isUserCreated: true,
       status: 'Active',
       createdAt: new Date().toISOString(),

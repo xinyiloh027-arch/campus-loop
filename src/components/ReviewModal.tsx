@@ -50,7 +50,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
       transactionId: request.id,
       listingId: request.listingId,
       listingTitle: request.listingTitle,
-      reviewerName: currentUserName || 'Alex Tan',
+      reviewerName: currentUserName || 'UTM Student',
       reviewerRole: currentUserRole,
       revieweeName,
       rating,
