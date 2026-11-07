@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { AccountState, UTMUser } from '../types';
 
-export type NavTab = 'home' | 'cart' | 'mall' | 'rent' | 'chat' | 'me' | 'pet';
+export type NavTab = 'home' | 'cart' | 'mall' | 'rent' | 'chat' | 'me';
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -167,20 +167,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 Profile
               </button>
-
-              <button
-                type="button"
-                onClick={() => handleNavClick('pet')}
-                className={`px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
-                  activeTab === 'pet'
-                    ? 'bg-pink-50 text-pink-700 font-bold border border-pink-200'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-                title="Pet World — Virtual Pet Game"
-              >
-                <span className="text-sm">🐾</span>
-                <span>Pet World</span>
-              </button>
             </nav>
 
             {/* Actions: UTM Account Status, Notifications, Sell/Rent Buttons */}
@@ -272,7 +258,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Fixed Bottom Navigation Bar (6 tabs: Home, Cart, Mall, Rent, Chat, Me) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-lg">
-        <div className="grid grid-cols-7 h-15.5 px-0.5 py-1">
+        <div className="grid grid-cols-6 h-15.5 px-0.5 py-1">
           {/* TAB 1: HOME */}
           <button
             type="button"
@@ -369,20 +355,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <User className="w-4 h-4" />
             <span className="text-[8.5px] tracking-tight">Profile</span>
-          </button>
-
-          {/* TAB 7: PET WORLD */}
-          <button
-            type="button"
-            onClick={() => handleNavClick('pet')}
-            className={`flex flex-col items-center justify-center gap-0.5 rounded-xl transition-all ${
-              activeTab === 'pet'
-                ? 'text-pink-600 font-extrabold'
-                : 'text-slate-500 hover:text-slate-800 font-medium'
-            }`}
-          >
-            <span className="text-base leading-none">🐾</span>
-            <span className="text-[8.5px] tracking-tight">Pet World</span>
           </button>
         </div>
       </nav>

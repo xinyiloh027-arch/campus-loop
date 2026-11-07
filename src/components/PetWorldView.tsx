@@ -32,6 +32,7 @@ import {
   CommunityPet, 
   UTMUser 
 } from '../types';
+import { PetSceneId } from '../types/petScenes';
 import { 
   petWorldService, 
   PET_SPECIES_LIST, 
@@ -82,6 +83,7 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
 
   // Feeding treat selector modal
   const [showFeedMenu, setShowFeedMenu] = useState(false);
+  const [activeSceneId, setActiveSceneId] = useState<PetSceneId>('dining');
 
   // Synchronize with storage
   const handleUpdatePet = (updated: VirtualPet) => {
@@ -95,8 +97,9 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
     if (!nextMuted) soundService.playChime();
   };
 
-  // 1. FEED INTERACTION
+  // 1. FEED INTERACTION (Dining Room)
   const handleFeed = (foodId?: string) => {
+    setActiveSceneId('dining');
     soundService.playMunch();
     setActionState('eating');
     const { pet: nextPet, message } = petWorldService.feedPet(pet, foodId);
@@ -109,8 +112,9 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
     }, 2800);
   };
 
-  // 2. BATHE INTERACTION
+  // 2. BATHE INTERACTION (Bath Area)
   const handleBathe = () => {
+    setActiveSceneId('bathe');
     soundService.playPop();
     setActionState('bathing');
     const { pet: nextPet, message } = petWorldService.bathePet(pet);
@@ -122,8 +126,9 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
     }, 3200);
   };
 
-  // 3. REST INTERACTION
+  // 3. REST INTERACTION (Bedroom)
   const handleRest = () => {
+    setActiveSceneId('bedroom');
     soundService.playSnore();
     const isAlreadySleeping = actionState === 'sleeping';
     if (isAlreadySleeping) {
@@ -137,8 +142,9 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
     }
   };
 
-  // 4. TOILET INTERACTION
+  // 4. TOILET INTERACTION (Bathroom)
   const handleToilet = () => {
+    setActiveSceneId('bathroom');
     soundService.playFlush();
     setActionState('toilet');
     const { pet: nextPet, message } = petWorldService.toiletPet(pet);
@@ -395,21 +401,30 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
           <PetRoom
             pet={pet}
             actionState={actionState}
+            activeSceneId={activeSceneId}
+            onSceneChange={setActiveSceneId}
             onPetClick={() => {
               setBubbleText(`*Happy purr* ${pet.name} loves being petted by you! (+5 Happiness)`);
               const updated = { ...pet, happiness: Math.min(100, pet.happiness + 5) };
               handleUpdatePet(updated);
             }}
             onHotspotClick={(action) => {
-              if (action === 'feed') setShowFeedMenu(true);
+              if (action === 'feed') {
+                setActiveSceneId('dining');
+                setShowFeedMenu(true);
+              }
               if (action === 'bathe') handleBathe();
               if (action === 'rest') handleRest();
               if (action === 'toilet') handleToilet();
               if (action === 'dress') {
+                setActiveSceneId('dressing');
                 setShopInitialTab('wardrobe');
                 setShowShopModal(true);
               }
-              if (action === 'play') setShowGamesModal(true);
+              if (action === 'play') {
+                setActiveSceneId('playroom');
+                setShowGamesModal(true);
+              }
               if (action === 'talk') setShowChatDrawer(true);
             }}
             bubbleText={bubbleText}
@@ -486,85 +501,49 @@ export const PetWorldView: React.FC<PetWorldViewProps> = ({ currentUser }) => {
             </div>
           </div>
 
-          {/* Primary Action Dock (Interactive functional controls) */}
-          <div className="p-3 sm:p-4 rounded-3xl bg-white border border-slate-200 shadow-sm flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none">
-            {/* Feed */}
-            <button
-              onClick={() => setShowFeedMenu(true)}
-              className="flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl bg-pink-50 hover:bg-pink-100 text-pink-700 flex flex-col items-center gap-1 transition-all cursor-pointer font-bold"
-            >
-              <span className="text-xl">🍴</span>
-              <span className="text-xs">Feed</span>
-            </button>
-
-            {/* Bathe */}
-            <button
-              onClick={handleBathe}
-              className="flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl bg-sky-50 hover:bg-sky-100 text-sky-700 flex flex-col items-center gap-1 transition-all cursor-pointer font-bold"
-            >
-              <span className="text-xl">🧼</span>
-              <span className="text-xs">Bathe</span>
-            </button>
-
-            {/* Play */}
-            <button
-              onClick={() => setShowGamesModal(true)}
-              className="flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-700 flex flex-col items-center gap-1 transition-all cursor-pointer font-bold"
-            >
-              <span className="text-xl">🎾</span>
-              <span className="text-xs">Play</span>
-            </button>
-
-            {/* Rest */}
-            <button
-              onClick={handleRest}
-              className={`flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl flex flex-col items-center gap-1 transition-all cursor-pointer font-bold ${
-                actionState === 'sleeping'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
-              }`}
-            >
-              <span className="text-xl">🛏️</span>
-              <span className="text-xs">{actionState === 'sleeping' ? 'Wake Up' : 'Rest'}</span>
-            </button>
-
-            {/* Toilet */}
-            <button
-              onClick={handleToilet}
-              className="flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 flex flex-col items-center gap-1 transition-all cursor-pointer font-bold"
-            >
-              <span className="text-xl">🚽</span>
-              <span className="text-xs">Toilet</span>
-            </button>
-
-            {/* Dress Up */}
-            <button
-              onClick={() => {
-                setShopInitialTab('wardrobe');
-                setShowShopModal(true);
-              }}
-              className="flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl bg-purple-50 hover:bg-purple-100 text-purple-700 flex flex-col items-center gap-1 transition-all cursor-pointer font-bold"
-            >
-              <span className="text-xl">👗</span>
-              <span className="text-xs">Dress Up</span>
-            </button>
-
+          {/* Social & Companion Quick Dock */}
+          <div className="p-3 sm:p-4 rounded-3xl bg-white border border-slate-200 shadow-sm flex items-center justify-between gap-2 overflow-x-auto scrollbar-none">
             {/* Talk with Memory */}
             <button
               onClick={() => setShowChatDrawer(true)}
-              className="flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 flex flex-col items-center gap-1 transition-all cursor-pointer font-bold"
+              className="flex-1 min-w-[120px] py-2.5 px-3 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 flex items-center justify-center gap-2 transition-all cursor-pointer font-bold text-xs"
             >
-              <span className="text-xl">💬</span>
-              <span className="text-xs">Talk</span>
+              <span className="text-lg">💬</span>
+              <span>Talk & Chat</span>
+            </button>
+
+            {/* Mini Games */}
+            <button
+              onClick={() => {
+                setActiveSceneId('playroom');
+                setShowGamesModal(true);
+              }}
+              className="flex-1 min-w-[120px] py-2.5 px-3 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-700 flex items-center justify-center gap-2 transition-all cursor-pointer font-bold text-xs"
+            >
+              <span className="text-lg">🎾</span>
+              <span>Mini-Games</span>
             </button>
 
             {/* Share Moment */}
             <button
               onClick={() => setShowShareModal(true)}
-              className="flex-1 min-w-[70px] py-2.5 px-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex flex-col items-center gap-1 transition-all cursor-pointer font-bold"
+              className="flex-1 min-w-[120px] py-2.5 px-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center gap-2 transition-all cursor-pointer font-bold text-xs"
             >
-              <span className="text-xl">📸</span>
-              <span className="text-xs">Share</span>
+              <span className="text-lg">📸</span>
+              <span>Share Moment</span>
+            </button>
+
+            {/* Wardrobe & Dress Up */}
+            <button
+              onClick={() => {
+                setActiveSceneId('dressing');
+                setShopInitialTab('wardrobe');
+                setShowShopModal(true);
+              }}
+              className="flex-1 min-w-[120px] py-2.5 px-3 rounded-2xl bg-purple-50 hover:bg-purple-100 text-purple-700 flex items-center justify-center gap-2 transition-all cursor-pointer font-bold text-xs"
+            >
+              <span className="text-lg">👗</span>
+              <span>Wardrobe</span>
             </button>
           </div>
 

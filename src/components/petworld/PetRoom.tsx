@@ -1,10 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   VirtualPet, 
   PetActionState 
 } from '../../types';
-import { PetVisual } from './PetVisual';
+import { 
+  PetSceneId, 
+  SceneCustomization, 
+  SCENE_META_LIST 
+} from '../../types/petScenes';
+import { sceneCustomizationService } from '../../services/sceneCustomizationService';
 import { soundService } from '../../services/soundService';
+import { PetVisual } from './PetVisual';
+import { CrayonFilterDef } from './CrayonFilterDef';
+import { DiningScene } from './scenes/DiningScene';
+import { BathroomScene } from './scenes/BathroomScene';
+import { BathScene } from './scenes/BathScene';
+import { PlayroomScene } from './scenes/PlayroomScene';
+import { BedroomScene } from './scenes/BedroomScene';
+import { DressingScene } from './scenes/DressingScene';
+import { SceneCustomizerModal } from './SceneCustomizerModal';
 
 interface PetRoomProps {
   pet: VirtualPet;
@@ -12,6 +26,8 @@ interface PetRoomProps {
   onPetClick: () => void;
   onHotspotClick: (action: 'feed' | 'bathe' | 'rest' | 'toilet' | 'dress' | 'play' | 'talk') => void;
   bubbleText?: string;
+  activeSceneId?: PetSceneId;
+  onSceneChange?: (sceneId: PetSceneId) => void;
 }
 
 export const PetRoom: React.FC<PetRoomProps> = ({
@@ -20,10 +36,28 @@ export const PetRoom: React.FC<PetRoomProps> = ({
   onPetClick,
   onHotspotClick,
   bubbleText,
+  activeSceneId,
+  onSceneChange,
 }) => {
+  const [currentScene, setCurrentScene] = useState<PetSceneId>(activeSceneId || 'dining');
+  const [sceneConfigs, setSceneConfigs] = useState<Record<PetSceneId, SceneCustomization>>(() => 
+    sceneCustomizationService.getAllConfigs()
+  );
+  const [showCustomizer, setShowCustomizer] = useState(false);
   const [showHearts, setShowHearts] = useState(false);
-  const theme = pet.roomTheme || 'dorm';
-  const isNight = actionState === 'sleeping' || pet.mood === 'sleepy';
+
+  // Sync with prop if parent controls scene
+  useEffect(() => {
+    if (activeSceneId && activeSceneId !== currentScene) {
+      setCurrentScene(activeSceneId);
+    }
+  }, [activeSceneId]);
+
+  const handleSceneSelect = (sceneId: PetSceneId) => {
+    soundService.playPop();
+    setCurrentScene(sceneId);
+    if (onSceneChange) onSceneChange(sceneId);
+  };
 
   const handlePetTap = () => {
     setShowHearts(true);
@@ -32,182 +66,260 @@ export const PetRoom: React.FC<PetRoomProps> = ({
     setTimeout(() => setShowHearts(false), 1400);
   };
 
-  // Background gradient per theme and time
-  const getBackgroundStyle = () => {
-    if (isNight) {
-      return 'from-slate-900 via-indigo-950 to-slate-900 text-white';
-    }
-    switch (theme) {
-      case 'garden':
-        return 'from-emerald-50/80 via-pink-50/50 to-amber-50/40';
-      case 'library':
-        return 'from-amber-50/80 via-orange-50/40 to-stone-100';
-      case 'dreamland':
-        return 'from-purple-50 via-pink-50/70 to-sky-50';
-      case 'tropical':
-        return 'from-teal-50/80 via-emerald-50/50 to-sky-50';
-      case 'dorm':
-      default:
-        return 'from-amber-50/70 via-rose-50/30 to-sky-50/60';
-    }
+  const handleSaveSceneDesign = (sceneId: PetSceneId, newConfig: SceneCustomization) => {
+    setSceneConfigs((prev) => ({
+      ...prev,
+      [sceneId]: newConfig
+    }));
   };
 
-  return (
-    <div className={`relative w-full rounded-3xl overflow-hidden border border-slate-200/80 shadow-md bg-gradient-to-b ${getBackgroundStyle()} transition-colors duration-700 min-h-[360px] sm:min-h-[440px] flex flex-col justify-between p-4 sm:p-6 select-none`}>
-      
-      {/* Wall Decor & Window */}
-      <div className="relative z-10 flex items-start justify-between w-full">
-        
-        {/* Left Wall: Room Shelf or Window */}
-        <div className="flex items-center gap-3">
-          {/* Window */}
-          <div className="relative w-24 sm:w-28 h-28 sm:h-32 rounded-2xl overflow-hidden border-4 border-white/80 shadow-sm bg-gradient-to-b from-sky-300 via-sky-200 to-amber-100">
-            {isNight ? (
-              <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center relative">
-                {/* Crescent Moon */}
-                <div className="w-8 h-8 rounded-full shadow-[inset_6px_-2px_0_0_#FDE047] rotate-[-20deg]" />
-                <span className="text-[10px] text-indigo-300 font-bold mt-1">Night Sky</span>
-                {/* Tiny stars */}
-                <div className="absolute top-3 left-4 text-xs text-white">✦</div>
-                <div className="absolute bottom-5 right-4 text-[10px] text-amber-200">★</div>
-              </div>
-            ) : (
-              <div className="w-full h-full relative flex items-center justify-center">
-                {/* Sun */}
-                <div className="w-10 h-10 rounded-full bg-amber-400 border-2 border-amber-300 animate-pulse" />
-                {/* Clouds */}
-                <div className="absolute bottom-2 left-2 text-base opacity-90">☁️</div>
-                <div className="absolute bottom-4 right-1 text-xs opacity-75">☁️</div>
-                {/* Window panes */}
-                <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none">
-                  <div className="border-r-2 border-b-2 border-white/80" />
-                  <div className="border-b-2 border-white/80" />
-                  <div className="border-r-2 border-white/80" />
-                  <div />
-                </div>
-              </div>
-            )}
-          </div>
+  // Helper to trigger activity and switch room
+  const handleActivityClick = (
+    sceneId: PetSceneId, 
+    action: 'feed' | 'bathe' | 'rest' | 'toilet' | 'dress' | 'play'
+  ) => {
+    handleSceneSelect(sceneId);
+    onHotspotClick(action);
+  };
 
-          {/* Hanging Plant / Fairy Lights */}
-          <div className="hidden sm:flex flex-col items-center space-y-1">
-            <span className="text-xl">🪴</span>
-            <div className="w-0.5 h-10 bg-amber-800/40" />
-          </div>
+  const activeConfig = sceneConfigs[currentScene] || sceneCustomizationService.getSceneConfig(currentScene);
+  const currentMeta = SCENE_META_LIST.find((s) => s.id === currentScene) || SCENE_META_LIST[0];
+
+  return (
+    <div className="relative w-full rounded-3xl overflow-hidden border-2 border-amber-900/15 shadow-md bg-amber-50/40 select-none flex flex-col justify-between min-h-[500px] sm:min-h-[580px]">
+      
+      {/* 1. Global Wax Crayon Filters & Patterns */}
+      <CrayonFilterDef />
+
+      {/* 2. Top Bar: Room Switcher Pills & Room Customization CTA */}
+      <div className="relative z-30 p-3 sm:p-4 bg-white/70 backdrop-blur-md border-b border-amber-900/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+        
+        {/* Room Pills Switcher (All 6 distinct environments) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto scrollbar-none pb-0.5">
+          {SCENE_META_LIST.map((scene) => {
+            const isSel = currentScene === scene.id;
+            return (
+              <button
+                key={scene.id}
+                type="button"
+                onClick={() => handleSceneSelect(scene.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  isSel
+                    ? 'bg-amber-900 text-white shadow-xs scale-102 font-black'
+                    : 'bg-white/80 hover:bg-white text-slate-700 border border-amber-900/10'
+                }`}
+                title={`Tour ${scene.name} (${scene.actionLabel})`}
+              >
+                <span>{scene.icon}</span>
+                <span>{scene.name}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Right Wall: Wardrobe & Clock */}
-        <div className="flex items-center gap-2">
-          {/* Wardrobe Hotspot */}
-          <button
-            onClick={() => onHotspotClick('dress')}
-            className="flex flex-col items-center p-2 rounded-2xl bg-white/70 hover:bg-white backdrop-blur-xs border border-white/60 shadow-2xs hover:scale-105 transition-all cursor-pointer group"
-            title="Open Wardrobe & Dress Up"
-          >
-            <span className="text-2xl group-hover:scale-110 transition-transform">🚪</span>
-            <span className="text-[10px] font-bold text-slate-700 mt-0.5">Wardrobe</span>
-          </button>
-
-          {/* Theme Banner Badge */}
-          <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/70 backdrop-blur-xs border border-white/60 text-xs font-bold text-slate-700 shadow-2xs">
-            <span>✨</span>
-            <span className="capitalize">{theme} Theme</span>
+        {/* Right: Room Name Badge & Room Customization Button */}
+        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-100/70 border border-amber-200 text-amber-900 text-xs font-semibold">
+            <span>{currentMeta.icon}</span>
+            <span>{currentMeta.description}</span>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowCustomizer(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+            title={`Customize ${currentMeta.name}'s wallpaper, floor, and furniture!`}
+          >
+            <span>🎨</span>
+            <span>Customise Room</span>
+          </button>
         </div>
       </div>
 
-      {/* Center Stage: The Pet + Interactive Speech Bubble */}
-      <div className="relative z-20 flex flex-col items-center justify-center my-auto">
+      {/* 3. SCENE VISUAL CANVAS (Wax Crayon Illustrated Room) */}
+      <div className="relative flex-1 w-full overflow-hidden flex flex-col justify-between">
         
-        {/* Interactive Speech / Reaction Bubble */}
-        {bubbleText && (
-          <div className="mb-2 max-w-xs sm:max-w-md px-4 py-2 rounded-2xl bg-white text-slate-800 text-xs font-semibold shadow-md border border-indigo-100 animate-fadeIn relative">
-            <p className="leading-snug">{bubbleText}</p>
-            {/* Bubble arrow pointing down */}
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-x-8 border-x-transparent border-t-8 border-t-white" />
-          </div>
+        {/* Dynamic Scene Illustrated Background */}
+        {currentScene === 'dining' && (
+          <DiningScene
+            customization={activeConfig}
+            isEating={actionState === 'eating'}
+            onFeedClick={() => onHotspotClick('feed')}
+          />
+        )}
+        {currentScene === 'bathroom' && (
+          <BathroomScene
+            customization={activeConfig}
+            isToiletActive={actionState === 'toilet'}
+            onToiletClick={() => onHotspotClick('toilet')}
+          />
+        )}
+        {currentScene === 'bathe' && (
+          <BathScene
+            customization={activeConfig}
+            isBathing={actionState === 'bathing'}
+            onBatheClick={() => onHotspotClick('bathe')}
+          />
+        )}
+        {currentScene === 'playroom' && (
+          <PlayroomScene
+            customization={activeConfig}
+            isPlaying={actionState === 'playing'}
+            onPlayClick={() => onHotspotClick('play')}
+          />
+        )}
+        {currentScene === 'bedroom' && (
+          <BedroomScene
+            customization={activeConfig}
+            isSleeping={actionState === 'sleeping'}
+            onRestClick={() => onHotspotClick('rest')}
+          />
+        )}
+        {currentScene === 'dressing' && (
+          <DressingScene
+            customization={activeConfig}
+            onDressClick={() => onHotspotClick('dress')}
+          />
         )}
 
-        {/* Pet Visual Container */}
-        <div className="relative cursor-pointer hover:scale-103 transition-transform" onClick={handlePetTap}>
-          <PetVisual
-            type={pet.type}
-            mood={pet.mood}
-            actionState={actionState}
-            accessory={pet.accessory}
-            growthStage={pet.growthStage}
-            isCustomPet={pet.isCustomPet}
-            customHead={pet.customHead}
-            size={220}
-            showHearts={showHearts}
-          />
+        {/* 4. Center Stage: The Pet + Interactive Speech Bubble */}
+        <div className="relative z-20 flex flex-col items-center justify-center my-auto pt-6 pb-2">
+          
+          {/* Hand-Drawn Reaction / Thought Bubble */}
+          {bubbleText && (
+            <div className="mb-3 max-w-xs sm:max-w-md px-4 py-2.5 rounded-2xl bg-white/95 backdrop-blur-xs text-slate-800 text-xs font-semibold shadow-md border-2 border-amber-900/15 animate-fadeIn relative">
+              <p className="leading-snug">{bubbleText}</p>
+              {/* Bubble pointer */}
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-x-8 border-x-transparent border-t-8 border-t-white" />
+            </div>
+          )}
+
+          {/* Pet Visual Character (Soft Kawaii Shin-chan/Miffy aesthetic) */}
+          <div 
+            className="relative cursor-pointer hover:scale-104 transition-transform active:scale-98" 
+            onClick={handlePetTap}
+            title={`Pet ${pet.name}!`}
+          >
+            <PetVisual
+              type={pet.type}
+              mood={pet.mood}
+              actionState={actionState}
+              accessory={pet.accessory}
+              growthStage={pet.growthStage}
+              isCustomPet={pet.isCustomPet}
+              customHead={pet.customHead}
+              size={230}
+              showHearts={showHearts}
+            />
+          </div>
         </div>
+
       </div>
 
-      {/* Floor & Room Hotspots (Bed, Bowls, Bath, Litter, Toys) */}
-      <div className="relative z-10 w-full pt-3 border-t border-slate-200/50 flex flex-wrap items-center justify-around gap-2 sm:gap-4 bg-white/40 backdrop-blur-xs rounded-2xl p-2 sm:p-3">
+      {/* 5. Activity Bottom Navigation Dock (Seamless room-switching care actions) */}
+      <div className="relative z-30 p-2.5 sm:p-3.5 bg-white/90 backdrop-blur-md border-t-2 border-amber-900/10 flex items-center justify-between gap-1.5 overflow-x-auto scrollbar-none">
         
-        {/* Hotspot 1: Pet Bed */}
+        {/* 1. FEED -> Dining Room */}
         <button
-          onClick={() => onHotspotClick('rest')}
-          className={`flex flex-col items-center p-2 rounded-xl transition-all cursor-pointer ${
-            actionState === 'sleeping' ? 'bg-indigo-100 ring-2 ring-indigo-500 scale-105' : 'hover:bg-white/80'
+          type="button"
+          onClick={() => handleActivityClick('dining', 'feed')}
+          className={`flex-1 min-w-[72px] py-2 px-1.5 rounded-2xl flex flex-col items-center gap-1 transition-all cursor-pointer font-bold ${
+            currentScene === 'dining'
+              ? 'bg-amber-100/90 text-amber-900 ring-2 ring-amber-500 scale-102 shadow-xs'
+              : 'bg-white hover:bg-amber-50 text-slate-700 border border-slate-200/80'
           }`}
-          title="Tuck into bed to rest"
+          title="Switch to Dining Room and Feed"
         >
-          <span className="text-xl sm:text-2xl">🛏️</span>
-          <span className="text-[10px] font-bold text-slate-700 mt-0.5">Pet Bed</span>
+          <span className="text-xl">🍽️</span>
+          <span className="text-[11px] font-extrabold">Feed</span>
         </button>
 
-        {/* Hotspot 2: Food & Water Bowl */}
+        {/* 2. TOILET -> Bathroom */}
         <button
-          onClick={() => onHotspotClick('feed')}
-          className={`flex flex-col items-center p-2 rounded-xl transition-all cursor-pointer ${
-            actionState === 'eating' ? 'bg-pink-100 ring-2 ring-pink-500 scale-105' : 'hover:bg-white/80'
+          type="button"
+          onClick={() => handleActivityClick('bathroom', 'toilet')}
+          className={`flex-1 min-w-[72px] py-2 px-1.5 rounded-2xl flex flex-col items-center gap-1 transition-all cursor-pointer font-bold ${
+            currentScene === 'bathroom'
+              ? 'bg-emerald-100/90 text-emerald-900 ring-2 ring-emerald-500 scale-102 shadow-xs'
+              : 'bg-white hover:bg-emerald-50 text-slate-700 border border-slate-200/80'
           }`}
-          title="Feed treats and snacks"
+          title="Switch to Bathroom and Tidy Potty"
         >
-          <span className="text-xl sm:text-2xl">🥣</span>
-          <span className="text-[10px] font-bold text-slate-700 mt-0.5">Food Bowl</span>
+          <span className="text-xl">🚽</span>
+          <span className="text-[11px] font-extrabold">Toilet</span>
         </button>
 
-        {/* Hotspot 3: Bath Area */}
+        {/* 3. BATHE -> Bath Area */}
         <button
-          onClick={() => onHotspotClick('bathe')}
-          className={`flex flex-col items-center p-2 rounded-xl transition-all cursor-pointer ${
-            actionState === 'bathing' ? 'bg-sky-100 ring-2 ring-sky-500 scale-105' : 'hover:bg-white/80'
+          type="button"
+          onClick={() => handleActivityClick('bathe', 'bathe')}
+          className={`flex-1 min-w-[72px] py-2 px-1.5 rounded-2xl flex flex-col items-center gap-1 transition-all cursor-pointer font-bold ${
+            currentScene === 'bathe'
+              ? 'bg-sky-100/90 text-sky-900 ring-2 ring-sky-500 scale-102 shadow-xs'
+              : 'bg-white hover:bg-sky-50 text-slate-700 border border-slate-200/80'
           }`}
-          title="Wash and bathe pet"
+          title="Switch to Bath Area and Bathe"
         >
-          <span className="text-xl sm:text-2xl">🛁</span>
-          <span className="text-[10px] font-bold text-slate-700 mt-0.5">Bath Basin</span>
+          <span className="text-xl">🛁</span>
+          <span className="text-[11px] font-extrabold">Bathe</span>
         </button>
 
-        {/* Hotspot 4: Toilet / Litter Area */}
+        {/* 4. PLAY -> Playroom & Garden */}
         <button
-          onClick={() => onHotspotClick('toilet')}
-          className={`flex flex-col items-center p-2 rounded-xl transition-all cursor-pointer ${
-            actionState === 'toilet' ? 'bg-emerald-100 ring-2 ring-emerald-500 scale-105' : 'hover:bg-white/80'
+          type="button"
+          onClick={() => handleActivityClick('playroom', 'play')}
+          className={`flex-1 min-w-[72px] py-2 px-1.5 rounded-2xl flex flex-col items-center gap-1 transition-all cursor-pointer font-bold ${
+            currentScene === 'playroom'
+              ? 'bg-amber-100/90 text-amber-900 ring-2 ring-amber-500 scale-102 shadow-xs'
+              : 'bg-white hover:bg-amber-50 text-slate-700 border border-slate-200/80'
           }`}
-          title="Tidy potty / litter area"
+          title="Switch to Playroom and Play"
         >
-          <span className="text-xl sm:text-2xl">🚽</span>
-          <span className="text-[10px] font-bold text-slate-700 mt-0.5">Litter Tray</span>
+          <span className="text-xl">🎾</span>
+          <span className="text-[11px] font-extrabold">Play</span>
         </button>
 
-        {/* Hotspot 5: Toy Basket */}
+        {/* 5. REST -> Bedroom */}
         <button
-          onClick={() => onHotspotClick('play')}
-          className={`flex flex-col items-center p-2 rounded-xl transition-all cursor-pointer ${
-            actionState === 'playing' ? 'bg-amber-100 ring-2 ring-amber-500 scale-105' : 'hover:bg-white/80'
+          type="button"
+          onClick={() => handleActivityClick('bedroom', 'rest')}
+          className={`flex-1 min-w-[72px] py-2 px-1.5 rounded-2xl flex flex-col items-center gap-1 transition-all cursor-pointer font-bold ${
+            currentScene === 'bedroom'
+              ? 'bg-indigo-100/90 text-indigo-900 ring-2 ring-indigo-500 scale-102 shadow-xs'
+              : 'bg-white hover:bg-indigo-50 text-slate-700 border border-slate-200/80'
           }`}
-          title="Play with toys & mini-games"
+          title="Switch to Bedroom and Rest"
         >
-          <span className="text-xl sm:text-2xl">🎾</span>
-          <span className="text-[10px] font-bold text-slate-700 mt-0.5">Toy Basket</span>
+          <span className="text-xl">🛏️</span>
+          <span className="text-[11px] font-extrabold">{actionState === 'sleeping' ? 'Wake' : 'Rest'}</span>
+        </button>
+
+        {/* 6. DRESS UP -> Dressing Room */}
+        <button
+          type="button"
+          onClick={() => handleActivityClick('dressing', 'dress')}
+          className={`flex-1 min-w-[72px] py-2 px-1.5 rounded-2xl flex flex-col items-center gap-1 transition-all cursor-pointer font-bold ${
+            currentScene === 'dressing'
+              ? 'bg-purple-100/90 text-purple-900 ring-2 ring-purple-500 scale-102 shadow-xs'
+              : 'bg-white hover:bg-purple-50 text-slate-700 border border-slate-200/80'
+          }`}
+          title="Switch to Dressing Room and Dress Up"
+        >
+          <span className="text-xl">👗</span>
+          <span className="text-[11px] font-extrabold">Dress Up</span>
         </button>
 
       </div>
+
+      {/* 6. Room Customizer Modal */}
+      {showCustomizer && (
+        <SceneCustomizerModal
+          currentSceneId={currentScene}
+          initialConfig={activeConfig}
+          onSave={handleSaveSceneDesign}
+          onClose={() => setShowCustomizer(false)}
+        />
+      )}
 
     </div>
   );
