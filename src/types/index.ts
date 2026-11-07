@@ -391,6 +391,7 @@ export interface CustomHeadConfig {
   rotation: number; // -45 to 45
   flipHorizontal?: boolean;
   maskShape?: 'circle' | 'oval' | 'smooth' | 'collar';
+  cropShape?: 'heart' | 'star' | 'rounded_rect' | 'circle' | 'oval' | 'smooth' | 'collar';
 }
 
 export interface SavedHeadImage {

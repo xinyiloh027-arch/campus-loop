@@ -1,4 +1,4 @@
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { 
   getAuth, 
   Auth, 
@@ -26,73 +26,112 @@ import {
   where, 
   orderBy, 
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  getDocFromServer
 } from 'firebase/firestore';
 
 export interface FirebaseConfig {
-  apiKey?: string;
-  authDomain?: string;
-  projectId?: string;
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
   storageBucket?: string;
   messagingSenderId?: string;
-  appId?: string;
+  appId: string;
+  measurementId?: string;
   firestoreDatabaseId?: string;
 }
+
+// User-provided Firebase project configuration
+const DEFAULT_FIREBASE_CONFIG: FirebaseConfig = {
+  apiKey: "AIzaSyCZ_tT97ykMTZnWmLEE4wEK6HijL_Qn1iw",
+  authDomain: "campusloop-e43e1.firebaseapp.com",
+  projectId: "campusloop-e43e1",
+  storageBucket: "campusloop-e43e1.firebasestorage.app",
+  messagingSenderId: "279304400122",
+  appId: "1:279304400122:web:99978f80d6b6cc773d6d43",
+  measurementId: "G-XSTD6JM228",
+  firestoreDatabaseId: "(default)"
+};
 
 let firebaseApp: FirebaseApp | null = null;
 let firebaseAuth: Auth | null = null;
 let firestoreDb: Firestore | null = null;
 
-// Determine if Firebase is configured
-export function getFirebaseConfig(): FirebaseConfig | null {
-  // Check vite environment variables
-  if (import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_PROJECT_ID) {
-    return {
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-      appId: import.meta.env.VITE_FIREBASE_APP_ID,
-      firestoreDatabaseId: import.meta.env.VITE_FIRESTORE_DATABASE_ID || '(default)'
-    };
-  }
-
-  // Check window.__FIREBASE_CONFIG__ injected at runtime if any
-  if (typeof window !== 'undefined' && (window as any).__FIREBASE_CONFIG__) {
-    return (window as any).__FIREBASE_CONFIG__;
-  }
-
-  return null;
+// Determine active Firebase configuration with environment variable support
+export function getFirebaseConfig(): FirebaseConfig {
+  return {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || DEFAULT_FIREBASE_CONFIG.apiKey,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || DEFAULT_FIREBASE_CONFIG.authDomain,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_CONFIG.projectId,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || DEFAULT_FIREBASE_CONFIG.storageBucket,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || DEFAULT_FIREBASE_CONFIG.appId,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || DEFAULT_FIREBASE_CONFIG.measurementId,
+    firestoreDatabaseId: import.meta.env.VITE_FIRESTORE_DATABASE_ID || DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId || '(default)'
+  };
 }
 
 export function isFirebaseConfigured(): boolean {
-  return getFirebaseConfig() !== null;
+  const config = getFirebaseConfig();
+  return Boolean(config.apiKey && config.projectId);
 }
 
-export function initFirebase(): { app: FirebaseApp | null; auth: Auth | null; db: Firestore | null } {
+/**
+ * Initialise Firebase only once
+ */
+export function initFirebase(): { app: FirebaseApp; auth: Auth; db: Firestore } {
   if (firebaseApp && firebaseAuth && firestoreDb) {
     return { app: firebaseApp, auth: firebaseAuth, db: firestoreDb };
   }
 
   const config = getFirebaseConfig();
-  if (!config || !config.apiKey || !config.projectId) {
-    return { app: null, auth: null, db: null };
-  }
 
   try {
     if (!getApps().length) {
       firebaseApp = initializeApp(config);
     } else {
-      firebaseApp = getApps()[0];
+      firebaseApp = getApp();
     }
     firebaseAuth = getAuth(firebaseApp);
     firestoreDb = getFirestore(firebaseApp, config.firestoreDatabaseId || '(default)');
-    return { app: firebaseApp, auth: firebaseAuth, db: firestoreDb };
   } catch (err) {
-    console.warn('Firebase initialization notice:', err);
-    return { app: null, auth: null, db: null };
+    console.warn('Firebase singleton initialisation warning:', err);
+    // If somehow getApp failed, ensure instances are created
+    if (!firebaseApp) {
+      firebaseApp = getApps()[0] || initializeApp(config);
+    }
+    firebaseAuth = getAuth(firebaseApp);
+    firestoreDb = getFirestore(firebaseApp, config.firestoreDatabaseId || '(default)');
   }
+
+  return { app: firebaseApp, auth: firebaseAuth, db: firestoreDb };
+}
+
+// Initialise singletons on module load
+const { app, auth, db } = initFirebase();
+export { app, auth, db };
+
+// Connection test helper as specified in the Firebase Skill
+export async function validateFirestoreConnection(): Promise<boolean> {
+  try {
+    if (db) {
+      await getDocFromServer(doc(db, 'test', 'connection'));
+      return true;
+    }
+    return false;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn("Firestore notice: client is currently in offline mode or network is unreachable.");
+      return false;
+    }
+    // Any permission or missing doc error still confirms the server endpoint is reachable
+    return true;
+  }
+}
+
+// Automatically test connection asynchronously
+if (typeof window !== 'undefined') {
+  validateFirestoreConnection().catch(() => {});
 }
 
 // Error handling conforming to Firebase Integration Skill
@@ -117,13 +156,13 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const auth = firebaseAuth;
+  const currentAuth = firebaseAuth || auth;
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth?.currentUser?.uid,
-      email: auth?.currentUser?.email,
-      emailVerified: auth?.currentUser?.emailVerified,
+      userId: currentAuth?.currentUser?.uid,
+      email: currentAuth?.currentUser?.email,
+      emailVerified: currentAuth?.currentUser?.emailVerified,
     },
     operationType,
     path
@@ -152,5 +191,6 @@ export {
   where,
   orderBy,
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  getDocFromServer
 };
