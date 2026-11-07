@@ -114,6 +114,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Remove startup diagnostic screen now that React App is active
+    try {
+      const diag = document.getElementById('campusloop-startup-diag');
+      if (diag) {
+        diag.remove();
+      }
+    } catch {}
+
     loadAllData();
 
     // Subscribe to auth state updates

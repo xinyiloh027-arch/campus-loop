@@ -12,8 +12,90 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <script>
+      (function() {
+        window.__campusloop_errors = [];
+        window.__logCampusLoopError = function(msg, source, lineno, colno) {
+          var formatted = (msg || 'Unknown startup error');
+          if (source) formatted += ' (' + source + (lineno ? ':' + lineno : '') + ')';
+          window.__campusloop_errors.push(formatted);
+          
+          var container = document.getElementById('campusloop-startup-diag');
+          var errList = document.getElementById('campusloop-diag-errors');
+          var statusEl = document.getElementById('campusloop-diag-status');
+          var substatusEl = document.getElementById('campusloop-diag-substatus');
+          var hintEl = document.getElementById('campusloop-diag-hint');
+          
+          if (statusEl) {
+            statusEl.textContent = 'Startup Diagnostics Notice';
+            statusEl.style.color = '#dc2626';
+          }
+          if (substatusEl) {
+            substatusEl.textContent = 'A script or asset error occurred during initialization:';
+          }
+          if (errList) {
+            var item = document.createElement('div');
+            item.style.padding = '8px 12px';
+            item.style.margin = '6px 0';
+            item.style.background = '#fef2f2';
+            item.style.border = '1px solid #fecaca';
+            item.style.borderRadius = '8px';
+            item.style.color = '#991b1b';
+            item.style.fontFamily = 'monospace';
+            item.style.fontSize = '12px';
+            item.style.wordBreak = 'break-all';
+            item.textContent = formatted;
+            errList.appendChild(item);
+          }
+          if (hintEl) {
+            hintEl.style.display = 'block';
+          }
+          if (container) {
+            container.style.display = 'flex';
+          }
+        };
+
+        window.addEventListener('error', function(event) {
+          var target = event.target || event.srcElement;
+          var isElement = target instanceof HTMLElement;
+          var msg = event.message;
+          var src = event.filename;
+          if (!msg && isElement) {
+            msg = 'Resource failed to load: ' + (target.src || target.href || target.tagName);
+            src = target.src || target.href;
+          }
+          window.__logCampusLoopError(msg || 'Script execution error', src, event.lineno, event.colno);
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event.reason;
+          var msg = reason ? (reason.message || String(reason)) : 'Unhandled Promise Rejection';
+          window.__logCampusLoopError('Promise Rejection: ' + msg);
+        });
+      })();
+    </script>
   </head>
   <body class="bg-[#FFFDF9] text-slate-800 antialiased selection:bg-pink-100 selection:text-pink-900">
+    <!-- Startup Diagnostic / Loading Screen (disappears automatically once React mounts) -->
+    <div id="campusloop-startup-diag" style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; background-color: #FFFDF9; box-sizing: border-box;">
+      <div style="max-width: 520px; width: 100%; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 24px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.06); padding: 32px; text-align: center; box-sizing: border-box;">
+        <div style="width: 54px; height: 54px; border-radius: 16px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; font-size: 20px; font-weight: 800; border: 1px solid #dbeafe;">
+          CL
+        </div>
+        <h2 id="campusloop-diag-status" style="font-size: 19px; font-weight: 700; color: #0f172a; margin: 0 0 6px 0;">
+          CampusLoop UTM
+        </h2>
+        <p id="campusloop-diag-substatus" style="font-size: 13px; color: #64748b; margin: 0 0 16px 0; line-height: 1.5;">
+          Loading marketplace and verified student services...
+        </p>
+        <div id="campusloop-diag-errors" style="text-align: left; margin: 12px 0;"></div>
+        <div id="campusloop-diag-hint" style="display: none; margin-top: 16px; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; font-size: 11px; color: #475569; text-align: left; line-height: 1.6;">
+          <div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">GitHub Pages Configuration Check:</div>
+          <div>If the error mentions <code>/src/main.tsx</code> or MIME-type <code>application/octet-stream</code>, GitHub Pages is deploying raw repository source files instead of the built application. In GitHub repository <strong>Settings &rarr; Pages &rarr; Build and deployment</strong>, set <strong>Source</strong> to <strong>GitHub Actions</strong>.</div>
+        </div>
+      </div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -142,9 +142,11 @@ export async function validateFirestoreConnection(): Promise<boolean> {
   }
 }
 
-// Automatically test connection asynchronously
+// Automatically test connection asynchronously without blocking module evaluation
 if (typeof window !== 'undefined') {
-  validateFirestoreConnection().catch(() => {});
+  setTimeout(() => {
+    validateFirestoreConnection().catch(() => {});
+  }, 1000);
 }
 
 // Error handling conforming to Firebase Integration Skill
