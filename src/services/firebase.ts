@@ -77,9 +77,9 @@ export function isFirebaseConfigured(): boolean {
 }
 
 /**
- * Initialise Firebase only once
+ * Initialise Firebase only once with resilient error handling
  */
-export function initFirebase(): { app: FirebaseApp; auth: Auth; db: Firestore } {
+export function initFirebase(): { app: FirebaseApp | null; auth: Auth | null; db: Firestore | null } {
   if (firebaseApp && firebaseAuth && firestoreDb) {
     return { app: firebaseApp, auth: firebaseAuth, db: firestoreDb };
   }
@@ -87,35 +87,48 @@ export function initFirebase(): { app: FirebaseApp; auth: Auth; db: Firestore } 
   const config = getFirebaseConfig();
 
   try {
-    if (!getApps().length) {
-      firebaseApp = initializeApp(config);
-    } else {
-      firebaseApp = getApp();
-    }
-    firebaseAuth = getAuth(firebaseApp);
-    firestoreDb = getFirestore(firebaseApp, config.firestoreDatabaseId || '(default)');
-  } catch (err) {
-    console.warn('Firebase singleton initialisation warning:', err);
-    // If somehow getApp failed, ensure instances are created
     if (!firebaseApp) {
-      firebaseApp = getApps()[0] || initializeApp(config);
+      if (!getApps().length) {
+        firebaseApp = initializeApp(config);
+      } else {
+        firebaseApp = getApp();
+      }
     }
-    firebaseAuth = getAuth(firebaseApp);
-    firestoreDb = getFirestore(firebaseApp, config.firestoreDatabaseId || '(default)');
+    if (firebaseApp && !firebaseAuth) {
+      firebaseAuth = getAuth(firebaseApp);
+    }
+    if (firebaseApp && !firestoreDb) {
+      firestoreDb = getFirestore(firebaseApp, config.firestoreDatabaseId || '(default)');
+    }
+  } catch (err) {
+    console.warn('CampusLoop Firebase initialization notice (running with resilient fallback):', err);
   }
 
   return { app: firebaseApp, auth: firebaseAuth, db: firestoreDb };
 }
 
-// Initialise singletons on module load
-const { app, auth, db } = initFirebase();
+// Initialise singletons safely on module load
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
+
+try {
+  const initResult = initFirebase();
+  app = initResult.app;
+  auth = initResult.auth;
+  db = initResult.db;
+} catch (e) {
+  console.warn('CampusLoop Firebase deferred boot warning:', e);
+}
+
 export { app, auth, db };
 
 // Connection test helper as specified in the Firebase Skill
 export async function validateFirestoreConnection(): Promise<boolean> {
   try {
-    if (db) {
-      await getDocFromServer(doc(db, 'test', 'connection'));
+    const { db: currentDb } = initFirebase();
+    if (currentDb) {
+      await getDocFromServer(doc(currentDb, 'test', 'connection'));
       return true;
     }
     return false;

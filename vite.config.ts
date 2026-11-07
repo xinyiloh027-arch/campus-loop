@@ -9,8 +9,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Intelligent base path resolution for GitHub Pages & custom domains
-function getBasePath(): string {
-  // 1. Explicit override via environment variable (e.g. VITE_BASE_PATH=/my-repo/)
+function getBasePath(command?: string, mode?: string): string {
+  // 1. Explicit override via environment variable (e.g. VITE_BASE_PATH=/campus-loop/)
   if (process.env.VITE_BASE_PATH) {
     let p = process.env.VITE_BASE_PATH;
     if (!p.startsWith('/') && !p.startsWith('.')) p = `/${p}`;
@@ -30,8 +30,13 @@ function getBasePath(): string {
       return `/${repoName}/`;
     }
   }
-  // 3. Fallback to relative './' so assets resolve correctly in any folder or domain
-  return './';
+  // 3. Project site fallback for CampusLoop on GitHub Pages (https://xinyiloh027-arch.github.io/campus-loop/)
+  // When building for production/deployment, use '/campus-loop/'
+  if (command === 'build' || mode === 'production' || process.env.NODE_ENV === 'production') {
+    return '/campus-loop/';
+  }
+  // 4. Default for local development server ('serve')
+  return '/';
 }
 
 // Vite plugin to ensure 404.html is automatically created from index.html for GitHub Pages SPA support
@@ -53,9 +58,9 @@ function githubPagesSpaFallback() {
   };
 }
 
-export default defineConfig(() => {
+export default defineConfig(({ command, mode }) => {
   return {
-    base: getBasePath(),
+    base: getBasePath(command, mode),
     plugins: [react(), tailwindcss(), githubPagesSpaFallback()],
     resolve: {
       alias: {
