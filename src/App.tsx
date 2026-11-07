@@ -156,11 +156,21 @@ export default function App() {
     };
     window.addEventListener('campusloop:open-create-listing', handleOpenListing);
 
+    // Refresh email verification status if user returns to tab after verifying
+    const handleWindowFocus = () => {
+      const user = authService.getCurrentUser();
+      if (user && !user.emailVerified) {
+        authService.checkEmailVerificationStatus().catch(() => {});
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+
     return () => {
       unsubscribeAuth();
       unsubscribeListings();
       unsubscribeRentals();
       window.removeEventListener('campusloop:open-create-listing', handleOpenListing);
+      window.removeEventListener('focus', handleWindowFocus);
     };
   }, []);
 

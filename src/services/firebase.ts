@@ -9,7 +9,8 @@ import {
   sendPasswordResetEmail,
   onAuthStateChanged,
   User as FirebaseUser,
-  updateProfile
+  updateProfile,
+  reload
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -194,6 +195,7 @@ export {
   sendPasswordResetEmail,
   onAuthStateChanged,
   updateProfile,
+  reload,
   collection,
   doc,
   setDoc,

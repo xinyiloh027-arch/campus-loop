@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   ShieldCheck, 
@@ -21,7 +21,7 @@ import { authService } from '../services/authService';
 import { UTMUser, ALLOWED_UTM_DOMAINS } from '../types';
 import { FacultySelect } from './FacultySelect';
 
-export type AuthModalMode = 'login' | 'register' | 'verify' | 'forgot' | 'reset';
+export type AuthModalMode = 'login' | 'register' | 'email-sent' | 'verified-success' | 'verify' | 'forgot' | 'reset';
 
 interface UtmAuthModalProps {
   isOpen: boolean;
@@ -58,6 +58,13 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   
+  // Email Verification Confirmation Flow States
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [isResending, setIsResending] = useState(false);
+  const [isCheckingVerification, setIsCheckingVerification] = useState(false);
+  const [resendStatus, setResendStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [verifiedSuccessUser, setVerifiedSuccessUser] = useState<UTMUser | null>(null);
+
   // Simulated inbox preview for smooth testing without exposing tokens in logs
   const [simulatedInboxPreview, setSimulatedInboxPreview] = useState<{
     code: string;
@@ -65,11 +72,57 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
     type: 'verification' | 'reset';
   } | null>(null);
 
+  // Sync mode if initialMode changes
+  useEffect(() => {
+    if (initialMode) {
+      setMode(initialMode);
+    }
+  }, [initialMode]);
+
+  // Check email verification automatically on window focus and polling when in 'email-sent' mode
+  useEffect(() => {
+    if (mode !== 'email-sent') return;
+
+    let isMounted = true;
+    const target = registeredEmail || email;
+    if (!target) return;
+
+    const performCheck = async () => {
+      try {
+        const result = await authService.checkEmailVerificationStatus(target);
+        if (isMounted && result.verified && result.user) {
+          setVerifiedSuccessUser(result.user);
+          setMode('verified-success');
+        }
+      } catch (err) {
+        console.warn('Auto verification check notice:', err);
+      }
+    };
+
+    // 1. Immediately check when user switches back to this tab from their email app
+    const onFocus = () => {
+      performCheck();
+    };
+    window.addEventListener('focus', onFocus);
+
+    // 2. Poll every 4 seconds while awaiting email verification
+    const timer = setInterval(() => {
+      performCheck();
+    }, 4000);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', onFocus);
+      clearInterval(timer);
+    };
+  }, [mode, registeredEmail, email]);
+
   if (!isOpen) return null;
 
   const resetMessages = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
+    setResendStatus(null);
   };
 
   const handleSwitchMode = (newMode: AuthModalMode) => {
@@ -93,14 +146,8 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
         }, 600);
       } else if (res.requiresVerification) {
         setErrorMessage(res.message);
-        if (res.previewCode) {
-          setSimulatedInboxPreview({
-            code: res.previewCode,
-            targetEmail: email.trim().toLowerCase(),
-            type: 'verification',
-          });
-        }
-        setMode('verify');
+        setRegisteredEmail(email.trim().toLowerCase());
+        setMode('email-sent');
       } else {
         setErrorMessage(res.message);
       }
@@ -132,22 +179,65 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
     try {
       const res = await authService.register(name, email, password, faculty, studentId);
       if (res.success) {
-        setSuccessMessage(res.message);
-        if (res.previewCode) {
-          setSimulatedInboxPreview({
-            code: res.previewCode,
-            targetEmail: email.trim().toLowerCase(),
-            type: 'verification',
-          });
-        }
-        setMode('verify');
+        const target = res.email || email.trim().toLowerCase();
+        setRegisteredEmail(target);
+        // Transition immediately to the email verification confirmation screen
+        setMode('email-sent');
       } else {
         setErrorMessage(res.message);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Registration failed.');
+      setErrorMessage(err.message || 'Registration failed. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // RESEND VERIFICATION EMAIL ACTION
+  const handleResendEmail = async () => {
+    setResendStatus(null);
+    setIsResending(true);
+    try {
+      const target = registeredEmail || email;
+      const res = await authService.resendVerification(target);
+      if (res.success) {
+        setResendStatus({ 
+          type: 'success', 
+          message: 'Verification email resent successfully! Please check your inbox and spam folder.' 
+        });
+      } else {
+        setResendStatus({ 
+          type: 'error', 
+          message: res.message || 'Failed to resend verification email.' 
+        });
+      }
+    } catch (err: any) {
+      setResendStatus({ 
+        type: 'error', 
+        message: err.message || 'Could not resend verification email. Please try again later.' 
+      });
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  // MANUAL CHECK VERIFICATION STATUS ACTION
+  const handleManualCheckVerification = async () => {
+    resetMessages();
+    setIsCheckingVerification(true);
+    try {
+      const target = registeredEmail || email;
+      const res = await authService.checkEmailVerificationStatus(target);
+      if (res.verified && res.user) {
+        setVerifiedSuccessUser(res.user);
+        setMode('verified-success');
+      } else {
+        setErrorMessage(res.message || 'Email not verified yet. Please check your UTM inbox and click the link.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Error checking verification status. Please try again.');
+    } finally {
+      setIsCheckingVerification(false);
     }
   };
 
@@ -522,10 +612,19 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md shadow-blue-200 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md shadow-blue-200 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <span>{isLoading ? 'Creating Account...' : 'Register as UTM Member'}</span>
-                <ArrowRight className="w-4 h-4" />
+                {isLoading ? (
+                  <>
+                    <RotateCcw className="w-4 h-4 animate-spin" />
+                    <span>Creating account…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Register as UTM Member</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
 
               <div className="pt-2 text-center text-xs text-slate-500">
@@ -533,7 +632,7 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
                 <button
                   type="button"
                   onClick={() => handleSwitchMode('login')}
-                  className="font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2"
+                  className="font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2 cursor-pointer"
                 >
                   Sign In
                 </button>
@@ -541,7 +640,140 @@ export const UtmAuthModal: React.FC<UtmAuthModalProps> = ({
             </form>
           )}
 
-          {/* MODE 3: EMAIL VERIFICATION */}
+          {/* MODE: EMAIL VERIFICATION CONFIRMATION SCREEN */}
+          {mode === 'email-sent' && (
+            <div className="space-y-4 text-xs">
+              {/* Success Notification Banner */}
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-950 space-y-1.5 animate-in fade-in-50">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <h3 className="font-bold text-sm text-emerald-950">
+                    Account Created Successfully!
+                  </h3>
+                </div>
+                <p className="text-xs text-emerald-800 leading-relaxed pl-7">
+                  We’ve sent a verification link to your UTM email. Please check your inbox and click the link to verify your account.
+                </p>
+              </div>
+
+              {/* Verification Details & Target Email */}
+              <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 mx-auto flex items-center justify-center border border-blue-100 shadow-2xs">
+                  <Mail className="w-6 h-6 animate-pulse" />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Verification Link Sent To
+                  </div>
+                  <div className="inline-block px-3.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 font-mono font-bold text-xs border border-blue-200 break-all shadow-2xs">
+                    {registeredEmail || email}
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-600 leading-relaxed max-w-sm mx-auto">
+                  Click the link in your email to activate your account. When you return to CampusLoop, we will automatically detect your verified status.
+                </p>
+              </div>
+
+              {/* Resend Status Message */}
+              {resendStatus && (
+                <div className={`p-3 rounded-2xl border text-xs flex items-start gap-2 animate-in fade-in-50 ${
+                  resendStatus.type === 'success' 
+                    ? 'bg-blue-50 border-blue-200 text-blue-800' 
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}>
+                  {resendStatus.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 leading-relaxed">{resendStatus.message}</div>
+                </div>
+              )}
+
+              {/* Primary Action: Check Verification Status */}
+              <button
+                type="button"
+                onClick={handleManualCheckVerification}
+                disabled={isCheckingVerification}
+                className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md shadow-blue-200 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className={`w-4 h-4 ${isCheckingVerification ? 'animate-spin' : ''}`} />
+                <span>{isCheckingVerification ? 'Checking verification status…' : "I've Verified My Email"}</span>
+              </button>
+
+              {/* Secondary Action: Resend Verification Email */}
+              <button
+                type="button"
+                onClick={handleResendEmail}
+                disabled={isResending}
+                className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isResending ? (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Resending email…</span>
+                  </>
+                ) : (
+                  <>
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Resend Verification Email</span>
+                  </>
+                )}
+              </button>
+
+              {/* Back to Login Action */}
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetMessages();
+                    setMode('login');
+                  }}
+                  className="font-bold text-xs text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
+                >
+                  &larr; Back to Login
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* MODE: VERIFIED SUCCESS */}
+          {mode === 'verified-success' && (
+            <div className="space-y-4 text-xs text-center py-2 animate-in fade-in-50">
+              <div className="w-14 h-14 rounded-3xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto shadow-sm">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="text-base font-bold text-slate-900">
+                  Email Verified Successfully!
+                </h3>
+                <p className="text-xs text-slate-600 max-w-xs mx-auto leading-relaxed">
+                  Your CampusLoop account is ready.
+                </p>
+              </div>
+
+              <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-xs text-emerald-900 font-medium">
+                Verified Member: <strong className="font-bold">{registeredEmail || email}</strong>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  resetMessages();
+                  setMode('login');
+                }}
+                className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md shadow-emerald-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>Go to Login</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* MODE 3: EMAIL VERIFICATION CODE (FALLBACK) */}
           {mode === 'verify' && (
             <form onSubmit={handleVerifySubmit} className="space-y-4 text-xs">
               <div className="text-center space-y-1">

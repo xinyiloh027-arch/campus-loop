@@ -27,6 +27,7 @@ import {
   sendPasswordResetEmail,
   onAuthStateChanged,
   updateProfile,
+  reload,
   doc,
   setDoc,
   getDoc
@@ -283,11 +284,10 @@ class AuthService {
         };
 
         if (db) {
-          try {
-            await setDoc(doc(db, 'users', userCred.user.uid), newUtmUser);
-          } catch (e) {
+          // Asynchronously persist to Firestore without blocking response
+          setDoc(doc(db, 'users', userCred.user.uid), newUtmUser).catch((e) => {
             console.warn('Could not write user to Firestore:', e);
-          }
+          });
         }
 
         this.saveLocalSession(newUtmUser, `fb-${userCred.user.uid}`);
@@ -297,13 +297,25 @@ class AuthService {
           success: true,
           requiresVerification: true,
           email: trimmedEmail,
-          message: `Registration successful! An official verification link has been sent to ${trimmedEmail}. Please verify your email before transacting.`
+          message: "We've sent a verification link to your UTM email. Please check your inbox and click the link to verify your account."
         };
       } catch (fbErr: any) {
+        console.error('Firebase registration error:', fbErr);
+        let errorMsg = 'Registration failed. Please check your details and try again.';
         if (fbErr.code === 'auth/email-already-in-use') {
-          return { success: false, message: 'An account with this UTM email already exists. Please sign in or reset your password.' };
+          errorMsg = 'An account with this UTM email already exists. Please sign in or reset your password.';
+        } else if (fbErr.code === 'auth/invalid-email') {
+          errorMsg = 'Invalid email address format. Please enter a valid UTM email.';
+        } else if (fbErr.code === 'auth/weak-password') {
+          errorMsg = 'Password is too weak. Please use at least 8 characters.';
+        } else if (fbErr.code === 'auth/network-request-failed') {
+          errorMsg = 'Network connection error. Please check your internet connection and try again.';
+        } else if (fbErr.code === 'auth/too-many-requests') {
+          errorMsg = 'Too many attempts. Please wait a few moments before trying again.';
+        } else if (fbErr.message) {
+          errorMsg = fbErr.message;
         }
-        return { success: false, message: fbErr.message || 'Firebase registration failed.' };
+        return { success: false, message: errorMsg };
       }
     }
 
@@ -429,9 +441,22 @@ class AuthService {
         await sendEmailVerification(auth.currentUser);
         return {
           success: true,
-          message: `Official verification link resent to ${trimmedEmail}. Please check your inbox and junk folder.`
+          message: `Official verification link resent to ${trimmedEmail}. Please check your inbox and spam folder.`
         };
       } catch (err: any) {
+        console.warn('Firebase resend verification error:', err);
+        if (err.code === 'auth/too-many-requests') {
+          return {
+            success: false,
+            message: 'Too many requests. Please wait a few moments before requesting another verification email.'
+          };
+        }
+        if (err.code === 'auth/network-request-failed') {
+          return {
+            success: false,
+            message: 'Network error. Please check your internet connection and try again.'
+          };
+        }
         return { success: false, message: err.message || 'Failed to resend verification email.' };
       }
     }
@@ -453,6 +478,76 @@ class AuthService {
       success: true,
       previewCode: code,
       message: `A new 6-digit verification code has been dispatched to ${trimmedEmail}.`
+    };
+  }
+
+  // --- REFRESH AND CHECK EMAIL VERIFICATION STATUS ---
+  public async checkEmailVerificationStatus(targetEmail?: string): Promise<{
+    verified: boolean;
+    user: UTMUser | null;
+    message: string;
+  }> {
+    const { auth, db } = initFirebase();
+    if (auth && auth.currentUser) {
+      try {
+        await reload(auth.currentUser);
+        if (auth.currentUser.emailVerified) {
+          const current = this.getCurrentUser();
+          const verifiedUser: UTMUser = current ? {
+            ...current,
+            emailVerified: true,
+            accountState: 'Verified UTM Member'
+          } : {
+            id: auth.currentUser.uid,
+            email: auth.currentUser.email || targetEmail || '',
+            name: auth.currentUser.displayName || 'UTM Student',
+            role: (auth.currentUser.email || '').endsWith('@utm.my') ? 'staff' : 'student',
+            accountState: 'Verified UTM Member',
+            emailVerified: true,
+            isSuspended: false,
+            createdAt: auth.currentUser.metadata.creationTime || new Date().toISOString()
+          };
+
+          if (db) {
+            setDoc(doc(db, 'users', auth.currentUser.uid), {
+              emailVerified: true,
+              accountState: 'Verified UTM Member'
+            }, { merge: true }).catch((e) => {
+              console.warn('Could not update firestore user verification status:', e);
+            });
+          }
+
+          this.saveLocalSession(verifiedUser, `fb-${auth.currentUser.uid}`);
+          this.notifyListeners(verifiedUser);
+
+          return {
+            verified: true,
+            user: verifiedUser,
+            message: 'Email Verified Successfully! Your CampusLoop account is ready.'
+          };
+        }
+      } catch (e) {
+        console.warn('Error refreshing Firebase user verification status:', e);
+      }
+    }
+
+    const emailToCheck = targetEmail || this.getCurrentUser()?.email;
+    if (emailToCheck) {
+      const users = this.getStoredUsers();
+      const localUser = users.find((u) => u.email.toLowerCase() === emailToCheck.toLowerCase());
+      if (localUser && localUser.emailVerified) {
+        return {
+          verified: true,
+          user: localUser,
+          message: 'Email Verified Successfully! Your CampusLoop account is ready.'
+        };
+      }
+    }
+
+    return {
+      verified: false,
+      user: this.getCurrentUser(),
+      message: 'Email not verified yet. Please click the link sent to your UTM email.'
     };
   }
 
