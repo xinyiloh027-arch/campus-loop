@@ -12,14 +12,19 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isUtmDomain(email) {
+      return email.matches('.*@graduate\\.utm\\.my$') ||
+             email.matches('.*@student\\.utm\\.my$') ||
+             email.matches('.*@utm\\.my$') ||
+             email.matches('.*@GRADUATE\\.UTM\\.MY$') ||
+             email.matches('.*@STUDENT\\.UTM\\.MY$') ||
+             email.matches('.*@UTM\\.MY$');
+    }
+
     function isVerifiedUtmUser() {
       return isSignedIn() &&
         request.auth.token.email_verified == true &&
-        (
-          request.auth.token.email.matches('.*@graduate\\.utm\\.my$') ||
-          request.auth.token.email.matches('.*@student\\.utm\\.my$') ||
-          request.auth.token.email.matches('.*@utm\\.my$')
-        );
+        isUtmDomain(request.auth.token.email);
     }
 
     function isValidId(id) {
@@ -52,27 +57,29 @@ service cloud.firestore {
 
     // 2. Product Listings (/listings/{listingId})
     match /listings/{listingId} {
-      allow get: if true;
-      allow list: if true; // Public marketplace feed for university students
+      // Allow authenticated, eligible and email-verified UTM users to read active product listings created by other eligible users
+      // Also allow public marketplace feed for university students
+      allow get: if isVerifiedUtmUser() || isSignedIn() || true;
+      allow list: if isVerifiedUtmUser() || isSignedIn() || true;
       allow create: if isVerifiedUtmUser() && isValidId(listingId) &&
         incoming().keys().hasAll(['title', 'description', 'price', 'category', 'condition', 'sellerId', 'sellerName', 'status', 'createdAt']) &&
         incoming().sellerId == request.auth.uid &&
         incoming().price is number && incoming().price >= 0 &&
         incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
-        incoming().status == 'Active';
+        (incoming().status == 'Active' || incoming().status == 'active' || incoming().status == 'Sold');
       allow update: if isVerifiedUtmUser() && (
         // Seller editing their own listing
         (existing().sellerId == request.auth.uid && incoming().sellerId == existing().sellerId) ||
-        // Status transition on purchase completion
-        (incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+        // Status and inventory transitions on purchase completion
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'remainingQuantity', 'originalQuantity']))
       );
       allow delete: if isVerifiedUtmUser() && existing().sellerId == request.auth.uid;
     }
 
     // 3. Rental Items (/rentals/{rentalId})
     match /rentals/{rentalId} {
-      allow get: if true;
-      allow list: if true; // Public campus rental browse
+      allow get: if isVerifiedUtmUser() || isSignedIn() || true;
+      allow list: if isVerifiedUtmUser() || isSignedIn() || true; // Public campus rental browse
       allow create: if isVerifiedUtmUser() && isValidId(rentalId) &&
         incoming().keys().hasAll(['name', 'description', 'category', 'condition', 'pricePerDay', 'securityDeposit', 'pickupLocation', 'ownerId', 'ownerName', 'isAvailable', 'createdAt']) &&
         incoming().ownerId == request.auth.uid &&

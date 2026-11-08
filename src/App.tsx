@@ -17,6 +17,7 @@ import {
 } from './types';
 import { storageService } from './services/storageService';
 import { authService } from './services/authService';
+import { initFirebase } from './services/firebase';
 import { Navbar, NavTab } from './components/Navbar';
 import { HomeView } from './components/HomeView';
 import { MallView } from './components/MallView';
@@ -106,6 +107,19 @@ export default function App() {
       setNotifications(storageService.getNotifications());
       setCurrentUser(authService.getCurrentUser());
       setAccountState(authService.getAccountState());
+
+      // Fetch latest from Firestore to guarantee fresh remote items for all users
+      storageService.fetchListings().then((realListings) => {
+        if (realListings && realListings.length >= 0) {
+          setListings(realListings);
+        }
+      }).catch(() => {});
+
+      storageService.fetchRentalItems().then((realRentals) => {
+        if (realRentals && realRentals.length >= 0) {
+          setRentalItems(realRentals);
+        }
+      }).catch(() => {});
     } catch (e) {
       console.error('Error loading initial data:', e);
     } finally {
@@ -139,16 +153,11 @@ export default function App() {
           emailVerified: user.emailVerified,
           isSuspended: user.isSuspended,
         }));
+        // Re-fetch marketplace listings as authenticated user
+        storageService.fetchListings().then((items) => {
+          if (items) setListings(items);
+        }).catch(() => {});
       }
-    });
-
-    // Real-time Firestore subscriptions for listings and rentals
-    const unsubscribeListings = storageService.subscribeToListings((realListings) => {
-      setListings(realListings);
-    });
-
-    const unsubscribeRentals = storageService.subscribeToRentalItems((realRentals) => {
-      setRentalItems(realRentals);
     });
 
     const handleOpenListing = () => {
@@ -167,12 +176,26 @@ export default function App() {
 
     return () => {
       unsubscribeAuth();
-      unsubscribeListings();
-      unsubscribeRentals();
       window.removeEventListener('campusloop:open-create-listing', handleOpenListing);
       window.removeEventListener('focus', handleWindowFocus);
     };
   }, []);
+
+  // Dedicated real-time Firestore subscriptions linked to user auth state
+  useEffect(() => {
+    const unsubscribeListings = storageService.subscribeToListings((realListings) => {
+      setListings(realListings);
+    });
+
+    const unsubscribeRentals = storageService.subscribeToRentalItems((realRentals) => {
+      setRentalItems(realRentals);
+    });
+
+    return () => {
+      unsubscribeListings();
+      unsubscribeRentals();
+    };
+  }, [currentUser?.id, currentUser?.emailVerified]);
 
   // ==========================================
   // TRANSACTION GATEKEEPER
@@ -417,18 +440,39 @@ export default function App() {
   const handleCreateListing = async (newListingData: any) => {
     if (!ensureVerifiedUtmUser('publish a product listing')) return;
 
-    const created = await storageService.createListing({
-      ...newListingData,
-      sellerId: currentUser?.id || 'uid',
-      sellerName: currentUser?.name || userProfile.name,
-      sellerContact: currentUser?.email || userProfile.email,
-      sellerFaculty: currentUser?.faculty || userProfile.faculty,
-      sellerAvatar: currentUser?.avatarUrl || userProfile.avatarUrl,
-    });
-    setListings((prev) => [created, ...prev]);
-    setIsCreateModalOpen(false);
-    setEditingListing(null);
-    addToast('success', 'Listing Published!', `"${created.title}" (${created.remainingQuantity || 1} units) is now visible in the marketplace.`);
+    try {
+      const { auth } = initFirebase();
+      const activeUid = auth?.currentUser?.uid || currentUser?.id || 'uid';
+      const activeName = auth?.currentUser?.displayName || currentUser?.name || userProfile.name;
+      const activeEmail = auth?.currentUser?.email || currentUser?.email || userProfile.email;
+      const activeFaculty = currentUser?.faculty || userProfile.faculty;
+      const activeAvatar = currentUser?.avatarUrl || userProfile.avatarUrl;
+
+      const created = await storageService.createListing({
+        ...newListingData,
+        sellerId: activeUid,
+        sellerName: activeName,
+        sellerContact: activeEmail,
+        sellerFaculty: activeFaculty,
+        sellerAvatar: activeAvatar,
+      });
+
+      setListings((prev) => [created, ...prev.filter((l) => l.id !== created.id)]);
+      setIsCreateModalOpen(false);
+      setEditingListing(null);
+      addToast(
+        'success',
+        'Listing Published!',
+        `"${created.title}" (${created.remainingQuantity || 1} units) is now visible in the marketplace.`
+      );
+    } catch (err: any) {
+      console.error('Failed to publish listing:', err);
+      addToast(
+        'error',
+        'Publishing Failed',
+        err?.message || 'Could not save listing to Firestore. Please check your connection and try again.'
+      );
+    }
   };
 
   const handleEditListing = (listing: Listing) => {

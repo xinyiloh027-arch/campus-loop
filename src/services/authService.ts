@@ -372,6 +372,9 @@ class AuthService {
     if (auth && auth.currentUser) {
       await auth.currentUser.reload();
       if (auth.currentUser.emailVerified) {
+        try {
+          await auth.currentUser.getIdToken(true);
+        } catch {}
         const user = this.getCurrentUser();
         if (user) {
           user.emailVerified = true;
@@ -491,6 +494,8 @@ class AuthService {
     if (auth && auth.currentUser) {
       try {
         await reload(auth.currentUser);
+        // Force refresh ID token to ensure email_verified claim is updated in JWT for Firestore rules
+        await auth.currentUser.getIdToken(true);
         if (auth.currentUser.emailVerified) {
           const current = this.getCurrentUser();
           const verifiedUser: UTMUser = current ? {
@@ -570,6 +575,13 @@ class AuthService {
         const userCred = await signInWithEmailAndPassword(auth, trimmedEmail, password);
         const fbUser = userCred.user;
 
+        // Check if verified or can be reloaded
+        if (!fbUser.emailVerified) {
+          try {
+            await reload(fbUser);
+          } catch {}
+        }
+
         if (!fbUser.emailVerified) {
           return {
             success: false,
@@ -577,6 +589,11 @@ class AuthService {
             message: `Your UTM email (${trimmedEmail}) is not verified yet. Please check your inbox for the verification email.`
           };
         }
+
+        // Force token refresh to ensure claims are fresh for Firestore security rules
+        try {
+          await fbUser.getIdToken(true);
+        } catch {}
 
         const safeUser: UTMUser = {
           id: fbUser.uid,

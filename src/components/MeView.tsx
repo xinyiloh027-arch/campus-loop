@@ -162,8 +162,7 @@ export const MeView: React.FC<MeViewProps> = ({
     ? listings.filter((l) => 
         (effectiveId && (l as any).sellerId === effectiveId) ||
         (effectiveEmail && l.sellerContact === effectiveEmail) ||
-        l.sellerName === effectiveName ||
-        l.isUserCreated
+        (effectiveName && l.sellerName === effectiveName)
       )
     : [];
 
@@ -188,8 +187,7 @@ export const MeView: React.FC<MeViewProps> = ({
     ? rentalItems.filter((item) => 
         (effectiveId && (item as any).ownerId === effectiveId) ||
         (effectiveEmail && item.ownerContact === effectiveEmail) ||
-        item.ownerName === effectiveName ||
-        item.isUserCreated
+        (effectiveName && item.ownerName === effectiveName)
       )
     : [];
 

@@ -117,9 +117,18 @@ export const storageService = {
       ? Math.max(0, Math.floor(listingData.remainingQuantity))
       : rawQty;
 
+    const { auth, db } = initFirebase();
+    const activeSellerId = auth?.currentUser?.uid || listingData.sellerId || 'uid';
+
+    // Generate authoritative Firestore document ID upfront
+    const listingsCol = db ? collection(db, 'listings') : null;
+    const docRef = listingsCol ? doc(listingsCol) : null;
+    const finalId = docRef ? docRef.id : `list-${Date.now()}`;
+
     const newListing: Listing = {
       ...listingData,
-      id: `list-${Date.now()}`,
+      id: finalId,
+      sellerId: activeSellerId,
       createdAt: new Date().toISOString(),
       originalQuantity: rawQty,
       remainingQuantity: remainingQty,
@@ -127,20 +136,25 @@ export const storageService = {
       isUserCreated: true,
     };
 
-    // 1. Firebase Firestore sync if connected
-    const { db } = initFirebase();
-    if (db) {
+    // 1. Firebase Firestore sync
+    if (db && docRef) {
+      if (auth?.currentUser) {
+        try {
+          await auth.currentUser.getIdToken(true);
+        } catch {}
+      }
       try {
-        const docRef = await addDoc(collection(db, 'listings'), newListing);
-        newListing.id = docRef.id;
+        await setDoc(docRef, newListing);
+        console.info('Listing successfully persisted to Firestore with ID:', finalId);
       } catch (err) {
-        console.warn('Firestore listing write warning:', err);
+        console.error('Firestore listing write error:', err);
+        throw err;
       }
     }
 
     // 2. Local state update
     const current = this.getListings();
-    const updated = [newListing, ...current];
+    const updated = [newListing, ...current.filter((item) => item.id !== finalId)];
     try {
       localStorage.setItem(LISTINGS_KEY, JSON.stringify(updated));
     } catch (e) {
@@ -213,16 +227,44 @@ export const storageService = {
     } catch {}
   },
 
+  async fetchListings(): Promise<Listing[]> {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const snap = await getDocs(collection(db, 'listings'));
+        const items: Listing[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          items.push({
+            ...(data as any),
+            id: docSnap.id,
+          });
+        });
+        items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        localStorage.setItem(LISTINGS_KEY, JSON.stringify(items));
+        return items;
+      } catch (err) {
+        console.warn('Firestore fetchListings warning:', err);
+      }
+    }
+    return this.getListings();
+  },
+
   subscribeToListings(callback: (listings: Listing[]) => void): () => void {
     const { db } = initFirebase();
     if (db) {
       try {
-        const q = query(collection(db, 'listings'), orderBy('createdAt', 'desc'));
+        const q = query(collection(db, 'listings'));
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const items: Listing[] = [];
           snapshot.forEach(docSnap => {
-            items.push({ id: docSnap.id, ...(docSnap.data() as any) });
+            const data = docSnap.data();
+            items.push({
+              ...(data as any),
+              id: docSnap.id,
+            });
           });
+          items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
           // Cache locally
           localStorage.setItem(LISTINGS_KEY, JSON.stringify(items));
           callback(items);
@@ -262,24 +304,37 @@ export const storageService = {
   },
 
   async createRentalItem(itemData: Omit<RentalItem, 'id' | 'createdAt'>): Promise<RentalItem> {
+    const { auth, db } = initFirebase();
+    const activeOwnerId = auth?.currentUser?.uid || itemData.ownerId || 'uid';
+
+    const rentalsCol = db ? collection(db, 'rentals') : null;
+    const docRef = rentalsCol ? doc(rentalsCol) : null;
+    const finalId = docRef ? docRef.id : `rent-${Date.now()}`;
+
     const newItem: RentalItem = {
       ...itemData,
-      id: `rent-${Date.now()}`,
+      id: finalId,
+      ownerId: activeOwnerId,
       createdAt: new Date().toISOString(),
     };
 
-    const { db } = initFirebase();
-    if (db) {
+    if (db && docRef) {
+      if (auth?.currentUser) {
+        try {
+          await auth.currentUser.getIdToken(true);
+        } catch {}
+      }
       try {
-        const docRef = await addDoc(collection(db, 'rentals'), newItem);
-        newItem.id = docRef.id;
+        await setDoc(docRef, newItem);
+        console.info('Rental successfully persisted to Firestore with ID:', finalId);
       } catch (err) {
-        console.warn('Firestore rental write warning:', err);
+        console.error('Firestore rental write error:', err);
+        throw err;
       }
     }
 
     const items = this.getRentalItems();
-    const updated = [newItem, ...items];
+    const updated = [newItem, ...items.filter((item) => item.id !== finalId)];
     this.saveRentalItems(updated);
     return newItem;
   },
@@ -324,16 +379,44 @@ export const storageService = {
     this.saveRentalItems(updated);
   },
 
+  async fetchRentalItems(): Promise<RentalItem[]> {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const snap = await getDocs(collection(db, 'rentals'));
+        const items: RentalItem[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          items.push({
+            ...(data as any),
+            id: docSnap.id,
+          });
+        });
+        items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        this.saveRentalItems(items);
+        return items;
+      } catch (err) {
+        console.warn('Firestore fetchRentalItems warning:', err);
+      }
+    }
+    return this.getRentalItems();
+  },
+
   subscribeToRentalItems(callback: (items: RentalItem[]) => void): () => void {
     const { db } = initFirebase();
     if (db) {
       try {
-        const q = query(collection(db, 'rentals'), orderBy('createdAt', 'desc'));
+        const q = query(collection(db, 'rentals'));
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const items: RentalItem[] = [];
           snapshot.forEach(docSnap => {
-            items.push({ id: docSnap.id, ...(docSnap.data() as any) });
+            const data = docSnap.data();
+            items.push({
+              ...(data as any),
+              id: docSnap.id,
+            });
           });
+          items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
           this.saveRentalItems(items);
           callback(items);
         }, (err) => {
