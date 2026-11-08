@@ -134,12 +134,12 @@ class ImageStorageService {
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, w, h);
 
-        // Export as WebP if supported, fallback to PNG
+        // Export as WebP if supported, fallback to JPEG/PNG
         let outputDataUrl = '';
         try {
-          outputDataUrl = canvas.toDataURL('image/webp', 0.92);
+          outputDataUrl = canvas.toDataURL('image/webp', 0.88);
           if (!outputDataUrl.startsWith('data:image/webp')) {
-            outputDataUrl = canvas.toDataURL('image/png');
+            outputDataUrl = canvas.toDataURL('image/jpeg', 0.85);
           }
         } catch {
           outputDataUrl = canvas.toDataURL('image/png');
@@ -161,6 +161,32 @@ class ImageStorageService {
 
       img.src = src;
     });
+  }
+
+  /**
+   * Process and compress product listing images & payment proof receipts
+   * Accepts JPG, PNG, WEBP files and scales to max 800px with 85% compression
+   * Prevents localStorage quota errors and enables smooth image rendering
+   */
+  public async processImageFile(file: File, maxDim = 800): Promise<string> {
+    try {
+      const result = await this.optimizeAndCropImage(file, maxDim);
+      return result.dataUrl;
+    } catch {
+      // Fallback to FileReader if Canvas is unavailable or blocked
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            resolve(reader.result);
+          } else {
+            reject(new Error('Failed to read image file.'));
+          }
+        };
+        reader.onerror = () => reject(new Error('Error reading image file.'));
+        reader.readAsDataURL(file);
+      });
+    }
   }
 
   /**

@@ -37,18 +37,48 @@ export const MyRequestsView: React.FC<MyRequestsViewProps> = ({
 
   const getStatusBadge = (status: RequestStatus) => {
     switch (status) {
+      case 'Pending Seller Response':
       case 'Pending':
         return (
           <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200/60 px-2.5 py-0.5 rounded-full">
             <Clock className="w-3.5 h-3.5" />
-            Pending Review
+            Pending Seller Response
           </span>
         );
+      case 'Chat / Payment Arrangement':
+        return (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200/60 px-2.5 py-0.5 rounded-full">
+            <MessageSquare className="w-3.5 h-3.5" />
+            Arrange Payment
+          </span>
+        );
+      case 'Payment Under Review':
+        return (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-2.5 py-0.5 rounded-full">
+            <Clock className="w-3.5 h-3.5" />
+            Payment Under Review
+          </span>
+        );
+      case 'Payment Proof Rejected':
+        return (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200/60 px-2.5 py-0.5 rounded-full">
+            <XCircle className="w-3.5 h-3.5" />
+            Proof Rejected
+          </span>
+        );
+      case 'Approved':
       case 'Accepted':
         return (
           <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 rounded-full">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            Trade Accepted!
+            Payment Approved
+          </span>
+        );
+      case 'Completed':
+        return (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200/60 px-2.5 py-0.5 rounded-full">
+            <CheckCheck className="w-3.5 h-3.5" />
+            Trade Completed
           </span>
         );
       case 'Rejected':
@@ -58,11 +88,10 @@ export const MyRequestsView: React.FC<MyRequestsViewProps> = ({
             Declined
           </span>
         );
-      case 'Completed':
+      default:
         return (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200/60 px-2.5 py-0.5 rounded-full">
-            <CheckCheck className="w-3.5 h-3.5" />
-            Trade Completed
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200/60 px-2.5 py-0.5 rounded-full">
+            {status}
           </span>
         );
     }

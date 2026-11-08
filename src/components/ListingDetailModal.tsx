@@ -23,6 +23,9 @@ export interface ListingDetailModalProps {
   onStartChat?: (sellerName: string, listing: Listing) => void;
   onRequestTrade: (listing: Listing) => void;
   reviews?: Review[];
+  currentUserId?: string;
+  currentUserEmail?: string;
+  currentUserName?: string;
 }
 
 export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
@@ -34,6 +37,9 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
   onStartChat,
   onRequestTrade,
   reviews = [],
+  currentUserId,
+  currentUserEmail,
+  currentUserName,
 }) => {
   if (!listing) return null;
 
@@ -44,8 +50,20 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
     ? listing.additionalImages
     : [listing.imageUrl];
 
+  const remainingQty = typeof listing.remainingQuantity === 'number'
+    ? listing.remainingQuantity
+    : (listing.status === 'Sold' ? 0 : (listing.originalQuantity || 1));
+
+  const isSoldOut = remainingQty <= 0 || listing.status === 'Sold';
+
+  const isCurrentUserSeller = Boolean(
+    (currentUserId && listing.sellerId === currentUserId) ||
+    (currentUserEmail && listing.sellerContact === currentUserEmail) ||
+    (currentUserName && listing.sellerName === currentUserName)
+  );
+
   const handleAddToCartClick = () => {
-    if (onAddToCart) {
+    if (onAddToCart && !isSoldOut) {
       onAddToCart(listing);
       setAddedAnimation(true);
       setTimeout(() => setAddedAnimation(false), 1500);
@@ -73,6 +91,16 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
             <span className="px-2 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700">
               {listing.condition}
             </span>
+            <span className="text-xs text-slate-400">·</span>
+            {isSoldOut ? (
+              <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-rose-100 text-rose-700">
+                Sold Out
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-emerald-100 text-emerald-800">
+                {remainingQty} unit{remainingQty > 1 ? 's' : ''} available
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -118,6 +146,14 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
                   <span>Real Campus Item Photo</span>
                 </div>
               )}
+
+              {isSoldOut && (
+                <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[2px] flex items-center justify-center">
+                  <span className="px-4 py-2 rounded-xl bg-rose-600 text-white font-extrabold text-sm uppercase tracking-wider shadow-lg">
+                    Sold Out
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Thumbnail Carousel */}
@@ -139,11 +175,24 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
             )}
           </div>
 
-          {/* Title and Price */}
+          {/* Title, Price, & Inventory status */}
           <div className="space-y-2 border-b border-slate-100 pb-4">
-            <div className="flex items-baseline gap-1 text-blue-700">
-              <span className="text-sm font-bold">RM</span>
-              <span className="text-3xl font-black tabular-nums">{listing.price.toFixed(2)}</span>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-baseline gap-1 text-blue-700">
+                <span className="text-sm font-bold">RM</span>
+                <span className="text-3xl font-black tabular-nums">{listing.price.toFixed(2)}</span>
+                <span className="text-xs text-slate-400 font-normal ml-1">/ unit</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-xl text-xs font-bold border ${
+                  isSoldOut
+                    ? 'bg-rose-50 border-rose-200 text-rose-700'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                }`}>
+                  {isSoldOut ? 'Sold Out' : `${remainingQty} In Stock`}
+                </span>
+              </div>
             </div>
 
             <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-snug">
@@ -224,50 +273,64 @@ export const ListingDetailModal: React.FC<ListingDetailModalProps> = ({
 
         {/* Bottom Action Footer */}
         <div className="p-3.5 sm:p-4 border-t border-slate-200 bg-white flex items-center gap-2.5">
-          {onStartChat && (
-            <button
-              type="button"
-              onClick={() => onStartChat(listing.sellerName, listing)}
-              className="p-3 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors flex flex-col items-center justify-center shrink-0"
-              title="Chat with Seller"
-            >
-              <MessageSquare className="w-5 h-5 text-blue-600" />
-              <span className="text-[10px] font-semibold text-slate-500 mt-0.5">Chat</span>
-            </button>
-          )}
-
-          {onAddToCart && (
-            <button
-              type="button"
-              onClick={handleAddToCartClick}
-              className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 border ${
-                addedAnimation 
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700' 
-                  : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
-              }`}
-            >
-              {addedAnimation ? (
-                <>
-                  <Check className="w-4 h-4 text-emerald-600" />
-                  <span>Added to Cart!</span>
-                </>
-              ) : (
-                <>
-                  <ShoppingCart className="w-4 h-4" />
-                  <span>Add to Cart</span>
-                </>
+          {isCurrentUserSeller ? (
+            <div className="w-full py-2.5 px-4 rounded-2xl bg-slate-100 text-slate-700 text-xs font-semibold flex items-center justify-between gap-2 border border-slate-200">
+              <span>You listed this item ({remainingQty} unit(s) remaining).</span>
+              <span className="text-blue-600 font-bold">Manage in Me &gt; My Sales</span>
+            </div>
+          ) : (
+            <>
+              {onStartChat && (
+                <button
+                  type="button"
+                  onClick={() => onStartChat(listing.sellerName, listing)}
+                  className="p-3 rounded-2xl border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors flex flex-col items-center justify-center shrink-0 cursor-pointer"
+                  title="Chat with Seller"
+                >
+                  <MessageSquare className="w-5 h-5 text-blue-600" />
+                  <span className="text-[10px] font-semibold text-slate-500 mt-0.5">Chat</span>
+                </button>
               )}
-            </button>
-          )}
 
-          <button
-            type="button"
-            onClick={() => onRequestTrade(listing)}
-            className="flex-1 py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs sm:text-sm shadow-md shadow-blue-200 transition-all flex items-center justify-center gap-2"
-          >
-            <ArrowLeftRight className="w-4 h-4" />
-            <span>Enquire / Request</span>
-          </button>
+              {onAddToCart && !isSoldOut && (
+                <button
+                  type="button"
+                  onClick={handleAddToCartClick}
+                  className={`py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 border cursor-pointer ${
+                    addedAnimation 
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700' 
+                      : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
+                  }`}
+                >
+                  {addedAnimation ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      <span>Added to Cart!</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-4 h-4" />
+                      <span>Add to Cart</span>
+                    </>
+                  )}
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={isSoldOut}
+                onClick={() => onRequestTrade(listing)}
+                className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
+                  isSoldOut
+                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300 shadow-none'
+                    : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-blue-200 cursor-pointer'
+                }`}
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+                <span>{isSoldOut ? 'Sold Out' : 'Request to Purchase'}</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

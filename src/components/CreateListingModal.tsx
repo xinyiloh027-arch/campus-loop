@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Upload, 
@@ -7,15 +7,22 @@ import {
   Check, 
   AlertCircle, 
   PlusCircle, 
-  Image as ImageIcon 
+  Image as ImageIcon,
+  Layers,
+  Sparkles,
+  RefreshCw,
+  Edit3
 } from 'lucide-react';
-import { Category, Condition, Listing, MALL_CATEGORIES, MallCategory } from '../types';
+import { Condition, Listing, MALL_CATEGORIES, MallCategory } from '../types';
 import { POPULAR_CAMPUS_LOCATIONS } from '../data/mockData';
+import { imageStorageService } from '../services/imageStorageService';
 
 interface CreateListingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onListingCreated: (newListing: any) => void;
+  initialListing?: Listing | null;
+  onListingUpdated?: (updatedListing: Listing) => void;
 }
 
 const PRESET_IMAGES = [
@@ -35,10 +42,15 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
   isOpen,
   onClose,
   onListingCreated,
+  initialListing,
+  onListingUpdated,
 }) => {
+  const isEditing = Boolean(initialListing);
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
+  const [quantity, setQuantity] = useState('1');
   const [category, setCategory] = useState<MallCategory>(MALL_CATEGORIES[0]);
   const [condition, setCondition] = useState<Condition>('Like New');
   const [location, setLocation] = useState(POPULAR_CAMPUS_LOCATIONS[0]);
@@ -46,28 +58,101 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
   const [customImageUrl, setCustomImageUrl] = useState('');
   const [selectedPresetImage, setSelectedPresetImage] = useState(PRESET_IMAGES[0].url);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [imageFileName, setImageFileName] = useState<string>('');
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
 
   // Validation
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Initialize form when opening in create or edit mode
+  useEffect(() => {
+    if (initialListing) {
+      setTitle(initialListing.title || '');
+      setDescription(initialListing.description || '');
+      setPrice(initialListing.price ? initialListing.price.toString() : '');
+      const existingQty = typeof initialListing.remainingQuantity === 'number'
+        ? initialListing.remainingQuantity
+        : (initialListing.originalQuantity || 1);
+      setQuantity(existingQty.toString());
+      setCategory((initialListing.category as MallCategory) || MALL_CATEGORIES[0]);
+      setCondition(initialListing.condition || 'Like New');
+      
+      const loc = initialListing.campusLocation || initialListing.location || POPULAR_CAMPUS_LOCATIONS[0];
+      if (POPULAR_CAMPUS_LOCATIONS.includes(loc)) {
+        setLocation(loc);
+        setCustomLocation('');
+      } else {
+        setLocation('Other');
+        setCustomLocation(loc);
+      }
+
+      if (initialListing.imageUrl) {
+        setUploadedImage(initialListing.imageUrl);
+        setCustomImageUrl('');
+      }
+    } else {
+      // Reset form for new listing
+      setTitle('');
+      setDescription('');
+      setPrice('');
+      setQuantity('1');
+      setCategory(MALL_CATEGORIES[0]);
+      setCondition('Like New');
+      setLocation(POPULAR_CAMPUS_LOCATIONS[0]);
+      setCustomLocation('');
+      setUploadedImage(null);
+      setCustomImageUrl('');
+      setSelectedPresetImage(PRESET_IMAGES[0].url);
+      setImageFileName('');
+      setErrors({});
+    }
+  }, [initialListing, isOpen]);
+
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      setErrors((prev) => ({ ...prev, image: 'Please select an image smaller than 2MB.' }));
+    // Check file format
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type.toLowerCase())) {
+      setErrors((prev) => ({ ...prev, image: 'Please select a valid image format (JPG, PNG, or WEBP).' }));
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setUploadedImage(reader.result as string);
+    // Clear previous errors
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.image;
+      return next;
+    });
+
+    setIsProcessingImage(true);
+    setImageFileName(file.name);
+
+    try {
+      // Process & compress photo to optimal WebP/JPEG dataUrl (< 80KB)
+      // This prevents localStorage quota overflow and keeps UI rendering lightning fast
+      const optimizedDataUrl = await imageStorageService.processImageFile(file, 800);
+      setUploadedImage(optimizedDataUrl);
       setCustomImageUrl('');
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error('Image compression error:', err);
+      setErrors((prev) => ({ ...prev, image: 'Failed to process image. Please try another photo.' }));
+    } finally {
+      setIsProcessingImage(false);
+      // Reset the input value so the same file can be re-selected if desired
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setUploadedImage(null);
+    setImageFileName('');
+    setCustomImageUrl('');
+    setSelectedPresetImage(PRESET_IMAGES[0].url);
   };
 
   const getEffectiveImageUrl = () => {
@@ -96,6 +181,13 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
       newErrors.price = 'Price cannot be negative.';
     }
 
+    const numQty = parseInt(quantity, 10);
+    if (!quantity || isNaN(numQty) || numQty < 1) {
+      newErrors.quantity = 'Available quantity must be a positive whole number (at least 1).';
+    } else if (!Number.isInteger(Number(quantity))) {
+      newErrors.quantity = 'Quantity must be a whole integer (e.g. 1, 2, 5).';
+    }
+
     const finalLocation = location === 'Other' ? customLocation.trim() : location;
     if (!finalLocation) {
       newErrors.location = 'Please specify a campus pickup location.';
@@ -112,6 +204,34 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
     setIsSubmitting(true);
     const finalLocation = location === 'Other' ? customLocation.trim() : location;
     const finalImage = getEffectiveImageUrl();
+    const numQty = parseInt(quantity, 10);
+
+    if (isEditing && initialListing && onListingUpdated) {
+      const updatedListing: Listing = {
+        ...initialListing,
+        title: title.trim(),
+        description: description.trim(),
+        price: parseFloat(price),
+        category,
+        condition,
+        location: finalLocation,
+        campusLocation: finalLocation,
+        imageUrl: finalImage,
+        additionalImages: [finalImage],
+        originalQuantity: initialListing.originalQuantity && initialListing.originalQuantity >= numQty 
+          ? initialListing.originalQuantity 
+          : numQty,
+        remainingQuantity: numQty,
+        status: numQty === 0 ? 'Sold' : 'Active',
+      };
+
+      setTimeout(() => {
+        onListingUpdated(updatedListing);
+        setIsSubmitting(false);
+        onClose();
+      }, 250);
+      return;
+    }
 
     const newListingData = {
       title: title.trim(),
@@ -123,12 +243,14 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
       campusLocation: finalLocation,
       imageUrl: finalImage,
       additionalImages: [finalImage],
-      isActualPhoto: true,
-      sellerName: '', // will be set from authenticated user
+      isActualPhoto: Boolean(uploadedImage),
+      originalQuantity: numQty,
+      remainingQuantity: numQty,
+      sellerName: '', // Populated by App.tsx with verified user info
       sellerContact: '',
       sellerFaculty: '',
       isUserCreated: true,
-      status: 'Active',
+      status: numQty === 0 ? 'Sold' : 'Active',
       createdAt: new Date().toISOString(),
     };
 
@@ -136,7 +258,7 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
       onListingCreated(newListingData);
       setIsSubmitting(false);
       onClose();
-    }, 300);
+    }, 250);
   };
 
   return (
@@ -152,17 +274,28 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
         <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-xs z-10">
           <div>
             <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-              <PlusCircle className="w-5 h-5 text-blue-600" />
-              <span>Sell an Item on CampusLoop</span>
+              {isEditing ? (
+                <>
+                  <Edit3 className="w-5 h-5 text-indigo-600" />
+                  <span>Edit Campus Listing</span>
+                </>
+              ) : (
+                <>
+                  <PlusCircle className="w-5 h-5 text-blue-600" />
+                  <span>Sell an Item on CampusLoop</span>
+                </>
+              )}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              List textbooks, calculators, dorm gear, or electronics for fellow students.
+              {isEditing 
+                ? 'Update price, remaining inventory, pickup spot, or product photos.' 
+                : 'List textbooks, electronics, dorm gear, or notes for fellow students.'}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -187,8 +320,8 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
             {errors.title && <p className="text-[11px] text-rose-500 mt-1">{errors.title}</p>}
           </div>
 
-          {/* Price & Category in 2 columns */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Price, Quantity & Category in Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {/* Price in RM */}
             <div>
               <label className="block font-bold text-slate-700 mb-1">
@@ -211,6 +344,28 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
                 />
               </div>
               {errors.price && <p className="text-[11px] text-rose-500 mt-1">{errors.price}</p>}
+            </div>
+
+            {/* Available Quantity */}
+            <div>
+              <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
+                <span>Available Qty *</span>
+                <span className="text-[10px] text-slate-400 font-normal">Units</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  placeholder="1"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border ${
+                    errors.quantity ? 'border-rose-400 ring-1 ring-rose-200' : 'border-slate-200'
+                  } text-slate-800 font-bold text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                />
+              </div>
+              {errors.quantity && <p className="text-[11px] text-rose-500 mt-1">{errors.quantity}</p>}
             </div>
 
             {/* Category */}
@@ -243,7 +398,7 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
                   key={cond}
                   type="button"
                   onClick={() => setCondition(cond)}
-                  className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                  className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
                     condition === cond
                       ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold shadow-2xs'
                       : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -255,45 +410,99 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
             </div>
           </div>
 
-          {/* Product Image Selection */}
-          <div className="space-y-2">
-            <label className="block font-bold text-slate-700">
-              Product Image *
-            </label>
+          {/* Product Image Section (with real photo upload, preview, replace, remove) */}
+          <div className="space-y-2.5 pt-1">
+            <div className="flex items-center justify-between">
+              <label className="block font-bold text-slate-700">
+                Product Photo *
+              </label>
+              <span className="text-[11px] text-slate-400">
+                Supports JPG, PNG, WEBP (Camera & Desktop)
+              </span>
+            </div>
 
-            {/* Current Image Preview */}
-            <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-2xl border border-slate-200">
-              <div className="w-16 h-16 rounded-xl overflow-hidden bg-white border border-slate-200 shrink-0">
-                <img
-                  src={getEffectiveImageUrl()}
-                  alt="Preview"
-                  className="w-full h-full object-cover"
-                />
+            {/* Active Image Preview Card */}
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-white border border-slate-200 shrink-0">
+                  <img
+                    src={getEffectiveImageUrl()}
+                    alt="Product Preview"
+                    className="w-full h-full object-cover"
+                  />
+                  {uploadedImage && (
+                    <div className="absolute bottom-0 inset-x-0 bg-blue-600/90 text-white text-[8px] font-bold py-0.5 text-center">
+                      Uploaded
+                    </div>
+                  )}
+                </div>
+
+                <div className="min-w-0 text-xs">
+                  <span className="font-bold text-slate-800 block truncate">
+                    {uploadedImage 
+                      ? (imageFileName || 'Custom Item Photo') 
+                      : (customImageUrl ? 'Web Photo' : 'Quick Preset')}
+                  </span>
+                  <span className="text-[11px] text-slate-500 block truncate">
+                    {uploadedImage ? 'Real photo processed & saved.' : 'Select a preset or upload your own.'}
+                  </span>
+                  {isProcessingImage && (
+                    <span className="text-[11px] text-blue-600 font-medium flex items-center gap-1 mt-0.5 animate-pulse">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Optimizing image...
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="text-xs text-slate-600">
-                <span className="font-bold text-slate-800 block">Selected Photo</span>
-                <span className="text-[11px] text-slate-400">Choose a preset below, paste a URL, or upload from device.</span>
+
+              {/* Action buttons on current image */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <label className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold cursor-pointer flex items-center gap-1.5 shadow-2xs">
+                  <Upload className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{uploadedImage ? 'Replace' : 'Upload'}</span>
+                  <input
+                    type="file"
+                    accept="image/png, image/jpeg, image/jpg, image/webp"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+
+                {uploadedImage && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveImage}
+                    className="p-1.5 rounded-xl border border-slate-200 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors"
+                    title="Remove custom photo"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Presets */}
+            {/* Quick Preset Images */}
             <div>
-              <span className="text-[11px] font-semibold text-slate-500 block mb-1">Quick Presets:</span>
-              <div className="grid grid-cols-4 gap-2">
-                {PRESET_IMAGES.slice(0, 4).map((p, idx) => (
+              <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
+                Or choose standard campus presets:
+              </span>
+              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                {PRESET_IMAGES.map((p, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => {
                       setSelectedPresetImage(p.url);
                       setUploadedImage(null);
+                      setImageFileName('');
                       setCustomImageUrl('');
                     }}
-                    className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${
+                    className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
                       selectedPresetImage === p.url && !uploadedImage && !customImageUrl
-                        ? 'border-blue-600 scale-102 ring-2 ring-blue-100'
-                        : 'border-slate-200 opacity-70 hover:opacity-100'
+                        ? 'border-blue-600 scale-105 ring-2 ring-blue-100 shadow-xs'
+                        : 'border-slate-200 opacity-65 hover:opacity-100'
                     }`}
+                    title={p.name}
                   >
                     <img src={p.url} alt={p.name} className="w-full h-full object-cover" />
                   </button>
@@ -301,31 +510,21 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
               </div>
             </div>
 
-            {/* File Upload / Image URL */}
-            <div className="flex items-center gap-2 pt-1">
-              <label className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer flex items-center gap-1.5 shrink-0">
-                <Upload className="w-3.5 h-3.5 text-blue-600" />
-                <span>Upload File</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-              </label>
-
+            {/* Custom Image URL fallback */}
+            <div className="pt-1">
               <input
                 type="text"
                 value={customImageUrl}
                 onChange={(e) => {
                   setCustomImageUrl(e.target.value);
                   setUploadedImage(null);
+                  setImageFileName('');
                 }}
-                placeholder="Or paste image URL..."
-                className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800"
+                placeholder="Or paste an image web URL (https://...)"
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            {errors.image && <p className="text-[11px] text-rose-500">{errors.image}</p>}
+            {errors.image && <p className="text-[11px] text-rose-500 font-medium">{errors.image}</p>}
           </div>
 
           {/* Campus Pickup Location */}
@@ -384,17 +583,21 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs"
+              className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs shadow-md shadow-blue-200 flex items-center gap-1.5 cursor-pointer"
+              disabled={isSubmitting || isProcessingImage}
+              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs shadow-md shadow-blue-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
-              <span>{isSubmitting ? 'Publishing...' : 'Publish Listing'}</span>
+              <span>
+                {isSubmitting 
+                  ? (isEditing ? 'Saving...' : 'Publishing...') 
+                  : (isEditing ? 'Save Changes' : 'Publish Listing')}
+              </span>
             </button>
           </div>
         </form>

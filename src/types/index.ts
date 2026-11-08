@@ -78,7 +78,7 @@ export interface CartItem {
 
 export type Condition = 'Brand New' | 'Like New' | 'Good' | 'Fair';
 
-export type ListingStatus = 'Active' | 'Reserved' | 'Completed' | 'Removed';
+export type ListingStatus = 'Active' | 'Reserved' | 'Completed' | 'Removed' | 'Sold';
 
 export type ListingType = 'Trade' | 'Borrow' | 'Free' | 'Clearance';
 
@@ -90,7 +90,17 @@ export type ClearanceTag =
 
 export type UserRole = 'buyer' | 'seller' | 'both';
 
-export type RequestStatus = 'Pending' | 'Accepted' | 'Rejected' | 'Completed';
+export type RequestStatus = 
+  | 'Pending Seller Response'
+  | 'Chat / Payment Arrangement'
+  | 'Payment Under Review'
+  | 'Payment Proof Rejected'
+  | 'Approved'
+  | 'Completed'
+  | 'Rejected'
+  // Legacy status aliases for compatibility
+  | 'Pending'
+  | 'Accepted';
 
 export interface CompetitorPrice {
   platform: 'Shopee' | 'Lazada' | 'Taobao' | 'Pinduoduo';
@@ -122,6 +132,7 @@ export interface Listing {
   additionalImages?: string[];
   isActualPhoto?: boolean;
   sellerExplanation?: string;
+  sellerId?: string;
   sellerName: string;
   sellerContact?: string;
   sellerFaculty?: string;
@@ -131,6 +142,10 @@ export interface Listing {
   createdAt: string;
   status: ListingStatus;
   listingType?: ListingType;
+
+  // Inventory Management
+  originalQuantity?: number;
+  remainingQuantity?: number;
   
   // Borrowing specifics
   borrowFeePerDay?: number;
@@ -166,10 +181,12 @@ export interface TradeRequest {
   listingTitle: string;
   listingPrice: number;
   listingImage: string;
+  sellerId?: string;
   sellerName: string;
+  buyerId?: string;
   buyerName: string;
   buyerContact: string;
-  offeredPrice: number;
+  offeredPrice: number; // Unit or total offered price
   pickupLocation: string;
   message: string;
   status: RequestStatus;
@@ -177,6 +194,16 @@ export interface TradeRequest {
   isSentByCurrentUser: boolean;
   hasBuyerReviewed?: boolean;
   hasSellerReviewed?: boolean;
+
+  // Purchase Workflow & Payment Proof
+  quantity?: number;
+  totalPrice?: number;
+  paymentProofUrl?: string;
+  paymentProofUploadedAt?: string;
+  paymentMethod?: string;
+  rejectionReason?: string;
+  approvedAt?: string;
+  completedAt?: string;
 }
 
 export type BorrowStatus = 

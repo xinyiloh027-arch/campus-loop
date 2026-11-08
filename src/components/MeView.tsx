@@ -29,7 +29,10 @@ import {
   Sparkles,
   LogOut,
   PawPrint,
-  ArrowRight
+  ArrowRight,
+  Receipt,
+  MessageSquare,
+  X
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -47,6 +50,8 @@ import { POPULAR_CAMPUS_LOCATIONS } from '../data/mockData';
 import { PetWorldView } from './PetWorldView';
 import { FacultySelect } from './FacultySelect';
 import { authService } from '../services/authService';
+import { PaymentProofModal } from './PaymentProofModal';
+import { SellerReviewModal } from './SellerReviewModal';
 
 interface MeViewProps {
   profile: UserProfile;
@@ -78,6 +83,15 @@ interface MeViewProps {
   onSignOut?: () => void;
   onOpenAuthModal?: () => void;
   onNavigateToPetWorld?: () => void;
+  
+  // Buyer-Seller Purchase Workflow Callbacks
+  onDeleteListing?: (id: string) => void;
+  onEditListing?: (listing: Listing) => void;
+  onSubmitPaymentProof?: (requestId: string, proofUrl: string, method: string) => Promise<void>;
+  onApproveTransaction?: (requestId: string) => Promise<void>;
+  onRejectPaymentProof?: (requestId: string, reason: string) => Promise<void>;
+  onCompleteTransaction?: (requestId: string) => Promise<void>;
+  onStartChat?: (sellerName: string, listing?: Listing) => void;
 }
 
 type MainTab = 'pet' | 'rentals' | 'listings' | 'purchases' | 'sales' | 'favourites' | 'settings' | 'help';
@@ -113,6 +127,13 @@ export const MeView: React.FC<MeViewProps> = ({
   onSignOut,
   onOpenAuthModal,
   onNavigateToPetWorld,
+  onDeleteListing,
+  onEditListing,
+  onSubmitPaymentProof,
+  onApproveTransaction,
+  onRejectPaymentProof,
+  onCompleteTransaction,
+  onStartChat,
 }) => {
   const [activeMainTab, setActiveMainTab] = useState<MainTab>(
     (initialSubTab as MainTab) || 'rentals'
@@ -123,6 +144,13 @@ export const MeView: React.FC<MeViewProps> = ({
   const [faculty, setFaculty] = useState(currentUser?.faculty || profile.faculty || 'Faculty of Computing (FC)');
   const [savedSettingsMsg, setSavedSettingsMsg] = useState(false);
   const [resetConfirmMsg, setResetConfirmMsg] = useState(false);
+
+  // Buyer-Seller Purchase Workflow Modal States
+  const [selectedProofRequest, setSelectedProofRequest] = useState<TradeRequest | null>(null);
+  const [selectedSellerReviewRequest, setSelectedSellerReviewRequest] = useState<TradeRequest | null>(null);
+  const [deleteConfirmListingId, setDeleteConfirmListingId] = useState<string | null>(null);
+  const [listingFilterTab, setListingFilterTab] = useState<'all' | 'active' | 'sold'>('all');
+  const [salesFilterTab, setSalesFilterTab] = useState<'all' | 'review' | 'pending' | 'approved' | 'completed'>('all');
 
   const isUserSignedIn = Boolean(currentUser) && accountState !== 'Signed Out';
   const effectiveEmail = currentUser?.email || profile.email;
@@ -206,34 +234,64 @@ export const MeView: React.FC<MeViewProps> = ({
     }
   };
 
-  // Helper for Trade status badge
+  // Helper for Trade status badge (all 6 purchase workflow statuses)
   const getTradeStatusBadge = (status: RequestStatus) => {
     switch (status) {
+      case 'Pending Seller Response':
       case 'Pending':
         return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
             <Clock className="w-3 h-3" />
-            Pending Handover
+            Pending Seller Response
           </span>
         );
+      case 'Chat / Payment Arrangement':
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-full">
+            <MessageSquare className="w-3 h-3" />
+            Arrange Payment
+          </span>
+        );
+      case 'Payment Under Review':
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full animate-pulse">
+            <Receipt className="w-3 h-3" />
+            Payment Under Review
+          </span>
+        );
+      case 'Payment Proof Rejected':
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-full">
+            <AlertTriangle className="w-3 h-3" />
+            Proof Rejected
+          </span>
+        );
+      case 'Approved':
       case 'Accepted':
         return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
             <CheckCircle2 className="w-3 h-3" />
-            Accepted · Ready to Meet
+            Payment Approved
           </span>
         );
       case 'Completed':
         return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full">
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full">
             <Check className="w-3 h-3" />
-            Completed
+            Completed (Traded)
           </span>
         );
       case 'Rejected':
         return (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-full">
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full">
+            <X className="w-3 h-3" />
             Declined
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+            {status}
           </span>
         );
     }
@@ -1362,23 +1420,64 @@ export const MeView: React.FC<MeViewProps> = ({
       )}
 
       {/* ============================================================== */}
-      {/* TAB 2: MY LISTINGS (SELL) */}
+      {/* TAB 2: MY LISTINGS (MY SALES & INVENTORY) */}
       {/* ============================================================== */}
       {activeMainTab === 'listings' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-bold text-slate-900">
-                My Active Sale Listings ({myListings.length})
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Package className="w-5 h-5 text-blue-600" />
+                <span>My Campus Sales & Inventory ({myListings.length})</span>
               </h2>
-              <p className="text-xs text-slate-500">Items you are selling to students across campus.</p>
+              <p className="text-xs text-slate-500">
+                Manage stock, edit prices or photos, and track sales across campus.
+              </p>
             </div>
             <button
+              type="button"
               onClick={onOpenCreateModal}
-              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
             >
-              <PlusCircle className="w-3.5 h-3.5" />
+              <PlusCircle className="w-4 h-4" />
               <span>+ List New Item</span>
+            </button>
+          </div>
+
+          {/* Listing Filter Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-semibold no-scrollbar">
+            <button
+              type="button"
+              onClick={() => setListingFilterTab('all')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                listingFilterTab === 'all'
+                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              All Listings ({myListings.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setListingFilterTab('active')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                listingFilterTab === 'active'
+                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Active In Stock ({myListings.filter(l => (l.remainingQuantity ?? 1) > 0 && l.status !== 'Sold').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setListingFilterTab('sold')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                listingFilterTab === 'sold'
+                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Sold Out ({myListings.filter(l => (l.remainingQuantity ?? 1) === 0 || l.status === 'Sold').length})
             </button>
           </div>
 
@@ -1387,182 +1486,555 @@ export const MeView: React.FC<MeViewProps> = ({
               <Package className="w-12 h-12 text-slate-300 mx-auto" />
               <h3 className="text-sm font-bold text-slate-800">You haven't listed any items yet</h3>
               <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Turn your used textbooks, electronics, or dorm gear into extra cash for the semester!
+                Turn your used textbooks, calculators, electronics, or dorm gear into extra cash for the semester!
               </p>
               <button
+                type="button"
                 onClick={onOpenCreateModal}
-                className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs"
+                className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs cursor-pointer shadow-xs"
               >
                 + Create Your First Listing
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {myListings.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => onSelectListing(item)}
-                  className="p-3.5 bg-white rounded-2xl border border-slate-200/90 hover:border-blue-300 hover:shadow-xs transition-all flex items-center gap-3 cursor-pointer group text-left"
-                >
-                  <div className="w-16 h-16 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
-                    <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-[10px] font-bold text-blue-600 uppercase">
-                      {item.category} · {item.condition}
-                    </span>
-                    <h4 className="text-xs sm:text-sm font-semibold text-slate-900 truncate group-hover:text-blue-600">
-                      {item.title}
-                    </h4>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-sm font-black text-blue-700">
-                        RM {item.price.toFixed(2)}
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                        {item.status}
-                      </span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {myListings
+                .filter((item) => {
+                  const rem = item.remainingQuantity !== undefined ? item.remainingQuantity : 1;
+                  if (listingFilterTab === 'active') return rem > 0 && item.status !== 'Sold';
+                  if (listingFilterTab === 'sold') return rem === 0 || item.status === 'Sold';
+                  return true;
+                })
+                .map((item) => {
+                  const remaining = typeof item.remainingQuantity === 'number' ? item.remainingQuantity : 1;
+                  const original = typeof item.originalQuantity === 'number' ? item.originalQuantity : 1;
+                  const isSold = remaining <= 0 || item.status === 'Sold';
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="p-4 bg-white rounded-2xl border border-slate-200/90 hover:border-blue-300 hover:shadow-xs transition-all space-y-3 text-left"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-18 h-18 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
+                          <img
+                            src={item.imageUrl}
+                            alt={item.title}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex items-center justify-between gap-1 flex-wrap">
+                            <span className="text-[10px] font-bold text-blue-600 uppercase">
+                              {item.category} · {item.condition}
+                            </span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                              isSold 
+                                ? 'bg-rose-50 text-rose-700 border-rose-200' 
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            }`}>
+                              {isSold ? 'Sold Out' : `${remaining} In Stock`}
+                            </span>
+                          </div>
+
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                            {item.title}
+                          </h4>
+
+                          <div className="flex items-center justify-between pt-0.5">
+                            <div className="flex items-baseline gap-1 text-blue-700 font-extrabold text-sm">
+                              <span>RM</span>
+                              <span>{item.price.toFixed(2)}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-500">
+                              Stock: <strong>{remaining}</strong> / {original}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Pickup location */}
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 bg-slate-50 p-2 rounded-xl border border-slate-100 truncate">
+                        <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span className="truncate">{item.campusLocation || item.location || 'Campus handover'}</span>
+                      </div>
+
+                      {/* Actions on listing */}
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => onSelectListing(item)}
+                          className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3 text-slate-500" />
+                          <span>View</span>
+                        </button>
+
+                        <div className="flex items-center gap-1.5">
+                          {onEditListing && (
+                            <button
+                              type="button"
+                              onClick={() => onEditListing(item)}
+                              className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                              title="Edit item price, stock quantity, or photo"
+                            >
+                              <Edit className="w-3 h-3" />
+                              <span>Edit</span>
+                            </button>
+                          )}
+
+                          {onDeleteListing && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Delete listing "${item.title}"? This cannot be undone.`)) {
+                                  onDeleteListing(item.id);
+                                }
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                              title="Delete this listing"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Delete</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
             </div>
           )}
         </div>
       )}
 
       {/* ============================================================== */}
-      {/* TAB 3: BUY REQUESTS (PURCHASES) */}
+      {/* TAB 3: BUY REQUESTS (BUYER TRANSACTIONS & PAYMENT PROOF) */}
       {/* ============================================================== */}
       {activeMainTab === 'purchases' && (
         <div className="space-y-4">
           <div>
-            <h2 className="text-base font-bold text-slate-900">
-              My Sent Purchase & Handover Requests ({myPurchases.length})
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <ArrowLeftRight className="w-5 h-5 text-blue-600" />
+              <span>My Sent Purchase & Handover Requests ({myPurchases.length})</span>
             </h2>
-            <p className="text-xs text-slate-500">Track negotiations and meetup arrangements with sellers.</p>
+            <p className="text-xs text-slate-500">
+              Track your purchase requests across 6 workflow stages and upload payment screenshots.
+            </p>
           </div>
 
           {myPurchases.length === 0 ? (
             <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center space-y-2">
               <ArrowLeftRight className="w-10 h-10 text-slate-300 mx-auto" />
-              <p className="text-sm font-bold text-slate-800">You don't have any transactions yet</p>
-              <p className="text-xs text-slate-500">When you submit purchase offers or arrange handovers with sellers, they will appear here.</p>
+              <p className="text-sm font-bold text-slate-800">You don't have any purchase requests yet</p>
+              <p className="text-xs text-slate-500">Browse campus items in the Mall and tap "Request to Purchase" to initiate an order.</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {myPurchases.map((req) => (
-                <div
-                  key={req.id}
-                  className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2.5 text-left"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
-                        <img src={req.listingImage} alt={req.listingTitle} className="w-full h-full object-cover" />
+            <div className="space-y-3.5">
+              {myPurchases.map((req) => {
+                const totalAmount = req.totalPrice || (req.offeredPrice * (req.quantity || 1));
+                const canUploadProof = ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Proof Rejected'].includes(req.status);
+                const isUnderReview = req.status === 'Payment Under Review';
+                const isApproved = req.status === 'Approved' || req.status === 'Accepted';
+
+                return (
+                  <div
+                    key={req.id}
+                    className="p-4 sm:p-5 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-3.5 text-left"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="flex items-start gap-3.5 min-w-0">
+                        <div className="w-16 h-16 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0">
+                          <img
+                            src={req.listingImage}
+                            alt={req.listingTitle}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {getTradeStatusBadge(req.status)}
+                            <span className="text-[11px] text-slate-400">
+                              Ref #{req.id.slice(-6)}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900 line-clamp-1">
+                            {req.listingTitle}
+                          </h4>
+                          <p className="text-xs text-slate-500">
+                            Seller: <strong className="text-slate-800">{req.sellerName}</strong>
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-xs sm:text-sm font-bold text-slate-900">{req.listingTitle}</h4>
-                        <p className="text-xs text-slate-500">Seller: {req.sellerName} · Offered: <strong className="text-blue-700">RM {req.offeredPrice.toFixed(2)}</strong></p>
+
+                      <div className="text-left sm:text-right shrink-0">
+                        <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Amount</span>
+                        <span className="text-base font-black text-blue-700 tabular-nums">
+                          RM {totalAmount.toFixed(2)}
+                        </span>
+                        <span className="text-[11px] text-slate-500 block">
+                          Qty: {req.quantity || 1} unit(s)
+                        </span>
                       </div>
                     </div>
-                    {getTradeStatusBadge(req.status)}
-                  </div>
 
-                  <div className="p-2.5 bg-slate-50 rounded-xl text-xs text-slate-600 flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Meetup: <strong>{req.pickupLocation}</strong></span>
+                    {/* Meetup and Details */}
+                    <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-600 grid grid-cols-1 sm:grid-cols-2 gap-2 border border-slate-100">
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>Meetup Spot: <strong>{req.pickupLocation}</strong></span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">
+                        Submitted on {new Date(req.createdAt).toLocaleDateString()}
+                      </span>
                     </div>
-                    <span className="text-[11px] text-slate-400">Sent {new Date(req.createdAt).toLocaleDateString()}</span>
-                  </div>
 
-                  {req.message && (
-                    <p className="text-xs text-slate-600 italic bg-blue-50/50 p-2 rounded-lg border border-blue-100">
-                      "{req.message}"
-                    </p>
-                  )}
-                </div>
-              ))}
+                    {/* Rejection Notice Banner */}
+                    {req.status === 'Payment Proof Rejected' && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                          <span>Payment Proof Needs Revision</span>
+                        </div>
+                        <p className="text-[11px] text-slate-700 bg-white/70 p-2 rounded-lg border border-rose-200/60">
+                          Seller feedback: "{req.rejectionReason || 'Please upload a clearer screenshot with full amount.'}"
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Payment Under Review Note */}
+                    {isUnderReview && (
+                      <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-start gap-2">
+                        <Receipt className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Payment Proof Under Review:</strong> Your payment screenshot was sent to the seller. Inventory will be officially deducted once the seller verifies and approves.
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Approved Banner */}
+                    {isApproved && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Payment Approved!</strong> The seller confirmed receipt of payment. Please coordinate via Chat to meet at {req.pickupLocation} and collect your item.
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Buyer Action Buttons */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        {onStartChat && (
+                          <button
+                            type="button"
+                            onClick={() => onStartChat(req.sellerName)}
+                            className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Chat with Seller</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Upload / Re-upload Payment Proof */}
+                        {canUploadProof && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedProofRequest(req)}
+                            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                            <span>{req.status === 'Payment Proof Rejected' ? 'Re-upload Payment Proof' : 'Upload Payment Proof'}</span>
+                          </button>
+                        )}
+
+                        {/* View Uploaded Proof while under review */}
+                        {isUnderReview && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedProofRequest(req)}
+                            className="px-3.5 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View / Update Proof</span>
+                          </button>
+                        )}
+
+                        {/* Mark Completed when approved */}
+                        {isApproved && onCompleteTransaction && (
+                          <button
+                            type="button"
+                            onClick={() => onCompleteTransaction(req.id)}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Check className="w-4 h-4" />
+                            <span>Mark Received & Completed</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
       {/* ============================================================== */}
-      {/* TAB 4: SALE OFFERS */}
+      {/* TAB 4: SALE OFFERS & SELLER TRANSACTION APPROVALS */}
       {/* ============================================================== */}
       {activeMainTab === 'sales' && (
         <div className="space-y-4">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">
-              Incoming Student Trade Offers ({mySales.length})
-            </h2>
-            <p className="text-xs text-slate-500">Offers and campus meetup requests from fellow students for your items.</p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-600" />
+                <span>Incoming Student Trade Offers ({mySales.length})</span>
+              </h2>
+              <p className="text-xs text-slate-500">
+                Verify buyer receipts, approve transactions with stock deduction, or decline requests.
+              </p>
+            </div>
+          </div>
+
+          {/* Sales Filter Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-semibold no-scrollbar">
+            <button
+              type="button"
+              onClick={() => setSalesFilterTab('all')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                salesFilterTab === 'all'
+                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              All ({mySales.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSalesFilterTab('review')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
+                salesFilterTab === 'review'
+                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                  : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+              }`}
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>Needs Approval ({mySales.filter(s => s.status === 'Payment Under Review').length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSalesFilterTab('pending')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                salesFilterTab === 'pending'
+                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Pending Response ({mySales.filter(s => s.status === 'Pending Seller Response' || s.status === 'Pending').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSalesFilterTab('approved')}
+              className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                salesFilterTab === 'approved'
+                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Approved ({mySales.filter(s => s.status === 'Approved' || s.status === 'Accepted').length})
+            </button>
           </div>
 
           {mySales.length === 0 ? (
             <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center space-y-2">
               <Clock className="w-10 h-10 text-slate-300 mx-auto" />
-              <p className="text-sm font-bold text-slate-800">No incoming sales requests</p>
-              <p className="text-xs text-slate-500">When classmates send trade requests for your listings, they will show up here.</p>
+              <p className="text-sm font-bold text-slate-800">No incoming sales requests yet</p>
+              <p className="text-xs text-slate-500">When classmates send purchase requests for your items, they will appear here for verification.</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {mySales.map((req) => (
-                <div
-                  key={req.id}
-                  className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-3 text-left"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">{req.listingTitle}</h4>
-                      <p className="text-xs text-slate-500">Buyer: {req.buyerName} ({req.buyerContact})</p>
-                      <p className="text-xs font-bold text-blue-700 mt-0.5">Offered RM {req.offeredPrice.toFixed(2)}</p>
-                    </div>
-                    {getTradeStatusBadge(req.status)}
-                  </div>
+            <div className="space-y-3.5">
+              {mySales
+                .filter((req) => {
+                  if (salesFilterTab === 'review') return req.status === 'Payment Under Review';
+                  if (salesFilterTab === 'pending') return req.status === 'Pending Seller Response' || req.status === 'Pending';
+                  if (salesFilterTab === 'approved') return req.status === 'Approved' || req.status === 'Accepted';
+                  return true;
+                })
+                .map((req) => {
+                  const matchingListing = listings.find(l => l.id === req.listingId);
+                  const totalAmount = req.totalPrice || (req.offeredPrice * (req.quantity || 1));
+                  const isUnderReview = req.status === 'Payment Under Review';
+                  const isApproved = req.status === 'Approved' || req.status === 'Accepted';
 
-                  <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                    <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Meetup Spot: {req.pickupLocation}</span>
-                  </div>
+                  return (
+                    <div
+                      key={req.id}
+                      className={`p-4 sm:p-5 bg-white rounded-2xl border transition-all space-y-3 text-left ${
+                        isUnderReview 
+                          ? 'border-indigo-300 ring-2 ring-indigo-100 shadow-sm' 
+                          : 'border-slate-200 shadow-xs'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            {getTradeStatusBadge(req.status)}
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              Ref #{req.id.slice(-6)}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900">{req.listingTitle}</h4>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Buyer: <strong className="text-slate-800">{req.buyerName}</strong> ({req.buyerContact})
+                          </p>
+                        </div>
 
-                  {/* Actions */}
-                  {req.status === 'Pending' && (
-                    <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
-                      <button
-                        type="button"
-                        onClick={() => onUpdateTradeStatus(req.id, 'Accepted')}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
-                      >
-                        Accept Offer
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onUpdateTradeStatus(req.id, 'Rejected')}
-                        className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold"
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  )}
+                        <div className="text-left sm:text-right">
+                          <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Amount</span>
+                          <span className="text-base font-black text-blue-700 tabular-nums">
+                            RM {totalAmount.toFixed(2)}
+                          </span>
+                          <span className="text-[11px] text-slate-500 block">
+                            Requested: <strong>{req.quantity || 1} unit(s)</strong>
+                          </span>
+                        </div>
+                      </div>
 
-                  {req.status === 'Accepted' && (
-                    <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
-                      <button
-                        type="button"
-                        onClick={() => onUpdateTradeStatus(req.id, 'Completed')}
-                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs"
-                      >
-                        Mark Handover Completed
-                      </button>
+                      {/* Meetup Spot */}
+                      <div className="p-2.5 bg-slate-50 rounded-xl text-xs text-slate-600 flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span>Meetup Spot: <strong>{req.pickupLocation}</strong></span>
+                        </div>
+                        {matchingListing && (
+                          <span className="text-[11px] text-slate-500">
+                            Available Stock: <strong>{matchingListing.remainingQuantity ?? 1} unit(s)</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Payment Under Review Action Box */}
+                      {isUnderReview && (
+                        <div className="p-3 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <Receipt className="w-5 h-5 text-indigo-600 shrink-0" />
+                            <div>
+                              <strong className="block">Buyer Uploaded Payment Proof!</strong>
+                              <span className="text-[11px] text-slate-600">
+                                Verify receipt and approve transaction to automatically deduct {req.quantity || 1} unit(s) from inventory.
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedSellerReviewRequest(req)}
+                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs shadow-md shadow-indigo-200 flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                          >
+                            <ShieldCheck className="w-4 h-4" />
+                            <span>Review &amp; Approve Proof</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Footer Actions */}
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          {onStartChat && (
+                            <button
+                              type="button"
+                              onClick={() => onStartChat(req.buyerName)}
+                              className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold flex items-center gap-1 cursor-pointer"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Chat with Buyer</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {/* Pending Seller Response */}
+                          {(req.status === 'Pending Seller Response' || req.status === 'Pending') && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => onUpdateTradeStatus(req.id, 'Rejected')}
+                                className="px-3 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold cursor-pointer"
+                              >
+                                Decline
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedSellerReviewRequest(req)}
+                                className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs cursor-pointer"
+                              >
+                                Review Offer
+                              </button>
+                            </>
+                          )}
+
+                          {/* Approved: Mark Handover Completed */}
+                          {isApproved && onCompleteTransaction && (
+                            <button
+                              type="button"
+                              onClick={() => onCompleteTransaction(req.id)}
+                              className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs cursor-pointer flex items-center gap-1"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Mark Handover Completed</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                  );
+                })}
             </div>
           )}
         </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* BUYER PAYMENT PROOF MODAL */}
+      {/* ============================================================== */}
+      {selectedProofRequest && (
+        <PaymentProofModal
+          isOpen={Boolean(selectedProofRequest)}
+          onClose={() => setSelectedProofRequest(null)}
+          request={selectedProofRequest}
+          onSubmitProof={async (requestId, proofUrl, method) => {
+            if (onSubmitPaymentProof) {
+              await onSubmitPaymentProof(requestId, proofUrl, method);
+            }
+          }}
+        />
+      )}
+
+      {/* ============================================================== */}
+      {/* SELLER APPROVAL / REJECTION MODAL */}
+      {/* ============================================================== */}
+      {selectedSellerReviewRequest && (
+        <SellerReviewModal
+          isOpen={Boolean(selectedSellerReviewRequest)}
+          onClose={() => setSelectedSellerReviewRequest(null)}
+          request={selectedSellerReviewRequest}
+          listing={listings.find(l => l.id === selectedSellerReviewRequest.listingId) || null}
+          onApprove={async (requestId) => {
+            if (onApproveTransaction) {
+              await onApproveTransaction(requestId);
+            }
+          }}
+          onReject={async (requestId, reason) => {
+            if (onRejectPaymentProof) {
+              await onRejectPaymentProof(requestId, reason);
+            }
+          }}
+        />
       )}
 
       {/* ============================================================== */}

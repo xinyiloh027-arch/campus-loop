@@ -9,6 +9,7 @@
 import { 
   Listing, 
   TradeRequest, 
+  RequestStatus,
   UserProfile, 
   Review, 
   ChatConversation, 
@@ -77,19 +78,52 @@ export const storageService = {
   getListings(): Listing[] {
     try {
       const stored = localStorage.getItem(LISTINGS_KEY);
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed: Listing[] = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          // Normalize quantity properties
+          return parsed.map((item) => {
+            const originalQty = typeof item.originalQuantity === 'number' && item.originalQuantity > 0 
+              ? Math.floor(item.originalQuantity) 
+              : 1;
+            const remainingQty = typeof item.remainingQuantity === 'number' 
+              ? Math.max(0, Math.floor(item.remainingQuantity)) 
+              : (item.status === 'Sold' ? 0 : originalQty);
+            const status = remainingQty === 0 ? 'Sold' : item.status;
+            return {
+              ...item,
+              originalQuantity: originalQty,
+              remainingQuantity: remainingQty,
+              status,
+            };
+          });
+        }
+      }
     } catch (e) {
       console.warn('Could not read listings from localStorage:', e);
     }
     return [];
   },
 
-  async createListing(listingData: Omit<Listing, 'id' | 'createdAt' | 'status' | 'isUserCreated'>): Promise<Listing> {
+  async createListing(listingData: Omit<Listing, 'id' | 'createdAt' | 'status' | 'isUserCreated'> & {
+    originalQuantity?: number;
+    remainingQuantity?: number;
+    status?: Listing['status'];
+  }): Promise<Listing> {
+    const rawQty = typeof listingData.originalQuantity === 'number' && listingData.originalQuantity > 0
+      ? Math.floor(listingData.originalQuantity)
+      : 1;
+    const remainingQty = typeof listingData.remainingQuantity === 'number'
+      ? Math.max(0, Math.floor(listingData.remainingQuantity))
+      : rawQty;
+
     const newListing: Listing = {
       ...listingData,
       id: `list-${Date.now()}`,
       createdAt: new Date().toISOString(),
-      status: 'Active',
+      originalQuantity: rawQty,
+      remainingQuantity: remainingQty,
+      status: remainingQty === 0 ? 'Sold' : (listingData.status || 'Active'),
       isUserCreated: true,
     };
 
@@ -116,24 +150,45 @@ export const storageService = {
   },
 
   async updateListing(id: string, updates: Partial<Listing>): Promise<Listing | null> {
-    const { db } = initFirebase();
-    if (db) {
-      try {
-        await updateDoc(doc(db, 'listings', id), updates);
-      } catch (err) {
-        console.warn('Firestore listing update warning:', err);
-      }
-    }
-
     const current = this.getListings();
     let updatedItem: Listing | null = null;
     const updated = current.map(item => {
       if (item.id === id) {
-        updatedItem = { ...item, ...updates };
+        const origQty = typeof updates.originalQuantity === 'number' 
+          ? Math.max(1, Math.floor(updates.originalQuantity)) 
+          : (item.originalQuantity || 1);
+        
+        let remQty = typeof updates.remainingQuantity === 'number'
+          ? Math.max(0, Math.floor(updates.remainingQuantity))
+          : (item.remainingQuantity !== undefined ? item.remainingQuantity : origQty);
+
+        let newStatus = updates.status || item.status;
+        if (remQty === 0) {
+          newStatus = 'Sold';
+        } else if (newStatus === 'Sold' && remQty > 0) {
+          newStatus = 'Active';
+        }
+
+        updatedItem = {
+          ...item,
+          ...updates,
+          originalQuantity: origQty,
+          remainingQuantity: remQty,
+          status: newStatus,
+        };
         return updatedItem;
       }
       return item;
     });
+
+    const { db } = initFirebase();
+    if (db && updatedItem) {
+      try {
+        await updateDoc(doc(db, 'listings', id), updatedItem);
+      } catch (err) {
+        console.warn('Firestore listing update warning:', err);
+      }
+    }
 
     try {
       localStorage.setItem(LISTINGS_KEY, JSON.stringify(updated));
@@ -299,7 +354,16 @@ export const storageService = {
   getTradeRequests(): TradeRequest[] {
     try {
       const stored = localStorage.getItem(REQUESTS_KEY);
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed: TradeRequest[] = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed.map((req) => ({
+            ...req,
+            quantity: typeof req.quantity === 'number' && req.quantity > 0 ? Math.floor(req.quantity) : 1,
+            totalPrice: typeof req.totalPrice === 'number' ? req.totalPrice : (req.offeredPrice * (req.quantity || 1)),
+          }));
+        }
+      }
     } catch (e) {
       console.warn('Could not read trade requests:', e);
     }
@@ -313,12 +377,21 @@ export const storageService = {
     return requests;
   },
 
-  async createTradeRequest(data: Omit<TradeRequest, 'id' | 'createdAt' | 'status' | 'isSentByCurrentUser'>): Promise<TradeRequest> {
+  async createTradeRequest(data: Omit<TradeRequest, 'id' | 'createdAt' | 'status' | 'isSentByCurrentUser'> & {
+    quantity?: number;
+    totalPrice?: number;
+    status?: RequestStatus;
+  }): Promise<TradeRequest> {
+    const qty = typeof data.quantity === 'number' && data.quantity > 0 ? Math.floor(data.quantity) : 1;
+    const total = typeof data.totalPrice === 'number' ? data.totalPrice : (data.offeredPrice * qty);
+
     const newRequest: TradeRequest = {
       ...data,
       id: `req-${Date.now()}`,
       createdAt: new Date().toISOString(),
-      status: 'Pending',
+      quantity: qty,
+      totalPrice: total,
+      status: data.status || 'Pending Seller Response',
       isSentByCurrentUser: true,
     };
 
@@ -338,7 +411,7 @@ export const storageService = {
 
     this.addCampusNotification(
       'New Purchase Request!',
-      `${newRequest.buyerName} requested to purchase "${newRequest.listingTitle}" for RM ${newRequest.offeredPrice}.`,
+      `${newRequest.buyerName} requested to buy ${newRequest.quantity}x "${newRequest.listingTitle}" for RM ${total.toFixed(2)}. (Ref #${newRequest.id.slice(-6)})`,
       'trade_request',
       'me'
     );
@@ -346,24 +419,17 @@ export const storageService = {
     return newRequest;
   },
 
-  async updateTradeRequestStatus(requestId: string, status: TradeRequest['status']): Promise<TradeRequest[]> {
-    const { db } = initFirebase();
-    if (db) {
-      try {
-        await updateDoc(doc(db, 'trades', requestId), { status });
-      } catch (err) {
-        console.warn('Firestore trade status update warning:', err);
-      }
-    }
-
+  async updateTradeRequestStatus(requestId: string, status: TradeRequest['status'], extra?: Partial<TradeRequest>): Promise<TradeRequest[]> {
     const current = this.getTradeRequests();
+    let updatedReq: TradeRequest | null = null;
+
     const updated = current.map(req => {
       if (req.id === requestId) {
-        const updatedReq = { ...req, status };
-        if (status === 'Accepted') {
+        updatedReq = { ...req, status, ...(extra || {}) };
+        if (status === 'Accepted' || status === 'Approved') {
           this.addCampusNotification(
-            'Purchase Request Accepted!',
-            `The seller accepted your request for "${req.listingTitle}". Coordinate campus meetup in Chat!`,
+            'Purchase Request Approved!',
+            `The seller approved your purchase for "${req.listingTitle}". Coordinate campus meetup in Chat!`,
             'trade_request',
             'chat'
           );
@@ -374,13 +440,178 @@ export const storageService = {
             'trade_request',
             'mall'
           );
+        } else if (status === 'Payment Proof Rejected') {
+          this.addCampusNotification(
+            'Payment Proof Needs Revision',
+            `Payment proof for "${req.listingTitle}" was rejected: ${extra?.rejectionReason || 'Please upload a clear screenshot.'}`,
+            'trade_request',
+            'me'
+          );
         }
         return updatedReq;
       }
       return req;
     });
 
+    const { db } = initFirebase();
+    if (db && updatedReq) {
+      try {
+        await updateDoc(doc(db, 'trades', requestId), { status, ...(extra || {}) });
+      } catch (err) {
+        console.warn('Firestore trade status update warning:', err);
+      }
+    }
+
     this.saveTradeRequests(updated);
+    return updated;
+  },
+
+  /**
+   * Buyer submits payment screenshot/receipt
+   * Updates status to 'Payment Under Review'
+   * CRITICAL: Does NOT deduct inventory! Stock remains reserved/active until seller approval.
+   */
+  async submitPaymentProof(requestId: string, paymentProofUrl: string, paymentMethod = 'DuitNow QR'): Promise<TradeRequest | null> {
+    const now = new Date().toISOString();
+    const current = this.getTradeRequests();
+    const target = current.find(r => r.id === requestId);
+    if (!target) return null;
+
+    const extra: Partial<TradeRequest> = {
+      paymentProofUrl,
+      paymentProofUploadedAt: now,
+      paymentMethod,
+      rejectionReason: undefined,
+    };
+
+    const updatedList = await this.updateTradeRequestStatus(requestId, 'Payment Under Review', extra);
+    const updated = updatedList.find(r => r.id === requestId) || null;
+
+    if (updated) {
+      this.addCampusNotification(
+        'Payment Proof Uploaded!',
+        `${updated.buyerName} uploaded payment proof for "${updated.listingTitle}" (${updated.quantity} unit(s), RM ${(updated.totalPrice || updated.offeredPrice).toFixed(2)}). Please verify and approve.`,
+        'trade_request',
+        'me'
+      );
+    }
+
+    return updated;
+  },
+
+  /**
+   * Seller ONLY: Approve transaction and deduct inventory
+   * Strict validation: checks available stock against requested quantity
+   * Deducts quantity from remainingQuantity, marks listing 'Sold' if remaining is 0
+   */
+  async approveTransaction(requestId: string): Promise<{ success: boolean; error?: string; request?: TradeRequest; listing?: Listing }> {
+    const requests = this.getTradeRequests();
+    const targetReq = requests.find(r => r.id === requestId);
+    if (!targetReq) {
+      return { success: false, error: 'Purchase request not found.' };
+    }
+
+    const listings = this.getListings();
+    const listing = listings.find(l => l.id === targetReq.listingId);
+    if (!listing) {
+      return { success: false, error: 'Associated product listing not found.' };
+    }
+
+    const requestedQty = targetReq.quantity || 1;
+    const currentRemaining = typeof listing.remainingQuantity === 'number' ? listing.remainingQuantity : 1;
+
+    // Strict inventory conflict check
+    if (currentRemaining < requestedQty) {
+      return {
+        success: false,
+        error: `Insufficient stock! Only ${currentRemaining} unit(s) remaining, but ${requestedQty} unit(s) were requested.`
+      };
+    }
+
+    // Deduct stock
+    const newRemaining = Math.max(0, currentRemaining - requestedQty);
+    const updatedListing = await this.updateListing(listing.id, {
+      remainingQuantity: newRemaining,
+      status: newRemaining === 0 ? 'Sold' : 'Active',
+    });
+
+    const now = new Date().toISOString();
+    const extra: Partial<TradeRequest> = {
+      approvedAt: now,
+    };
+
+    const updatedList = await this.updateTradeRequestStatus(requestId, 'Approved', extra);
+    const updatedReq = updatedList.find(r => r.id === requestId);
+
+    // Notify buyer
+    this.addCampusNotification(
+      'Purchase Approved!',
+      `Seller approved payment of RM ${(targetReq.totalPrice || targetReq.offeredPrice).toFixed(2)} for ${requestedQty}x "${targetReq.listingTitle}". Coordinate campus meetup in Chat!`,
+      'trade_request',
+      'chat'
+    );
+
+    // If stock depleted to 0, notify any conflicting pending requests
+    if (newRemaining === 0) {
+      const otherPending = requests.filter(r => r.listingId === listing.id && r.id !== requestId && ['Pending Seller Response', 'Payment Under Review'].includes(r.status));
+      for (const pending of otherPending) {
+        this.addCampusNotification(
+          'Item Out of Stock',
+          `"${listing.title}" is now sold out. Your request #${pending.id.slice(-6)} cannot be fulfilled.`,
+          'trade_request',
+          'mall'
+        );
+      }
+    }
+
+    return {
+      success: true,
+      request: updatedReq,
+      listing: updatedListing || undefined,
+    };
+  },
+
+  /**
+   * Seller ONLY: Reject payment proof
+   * Keeps stock unchanged and notifies buyer with reason
+   */
+  async rejectPaymentProof(requestId: string, reason: string): Promise<TradeRequest | null> {
+    const extra: Partial<TradeRequest> = {
+      rejectionReason: reason.trim() || 'Payment proof was unclear or did not match the expected amount.',
+    };
+
+    const updatedList = await this.updateTradeRequestStatus(requestId, 'Payment Proof Rejected', extra);
+    const updated = updatedList.find(r => r.id === requestId) || null;
+
+    if (updated) {
+      this.addCampusNotification(
+        'Payment Proof Rejected',
+        `Seller rejected payment proof for "${updated.listingTitle}": ${extra.rejectionReason}`,
+        'trade_request',
+        'me'
+      );
+    }
+
+    return updated;
+  },
+
+  /**
+   * Complete transaction (Handover completed)
+   */
+  async completeTransaction(requestId: string): Promise<TradeRequest | null> {
+    const now = new Date().toISOString();
+    const updatedList = await this.updateTradeRequestStatus(requestId, 'Completed', { completedAt: now });
+    const updated = updatedList.find(r => r.id === requestId) || null;
+
+    if (updated) {
+      this.addCampusNotification(
+        'Transaction Completed!',
+        `Handover for "${updated.listingTitle}" is complete! Please leave a verified review.`,
+        'trade_request',
+        'me'
+      );
+    }
+
     return updated;
   },
 

@@ -74,6 +74,7 @@ export default function App() {
   const [detailModalListing, setDetailModalListing] = useState<Listing | null>(null);
   const [tradeModalListing, setTradeModalListing] = useState<Listing | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingListing, setEditingListing] = useState<Listing | null>(null);
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
 
   // Toasts
@@ -403,9 +404,13 @@ export default function App() {
     setSelectedRentalItem(null);
   };
 
-  // --- SALE LISTING CREATION ---
+  // --- SALE LISTING MANAGEMENT ---
   const handleOpenCreateListingModal = () => {
-    if (!ensureVerifiedUtmUser('create a product listing', () => setIsCreateModalOpen(true))) return;
+    if (!ensureVerifiedUtmUser('create a product listing', () => {
+      setEditingListing(null);
+      setIsCreateModalOpen(true);
+    })) return;
+    setEditingListing(null);
     setIsCreateModalOpen(true);
   };
 
@@ -422,10 +427,40 @@ export default function App() {
     });
     setListings((prev) => [created, ...prev]);
     setIsCreateModalOpen(false);
-    addToast('success', 'Listing Published!', `"${created.title}" is now visible in the marketplace.`);
+    setEditingListing(null);
+    addToast('success', 'Listing Published!', `"${created.title}" (${created.remainingQuantity || 1} units) is now visible in the marketplace.`);
   };
 
-  // --- TRADE REQUEST FROM MODAL ---
+  const handleEditListing = (listing: Listing) => {
+    if (!ensureVerifiedUtmUser('edit a product listing', () => {
+      setEditingListing(listing);
+      setIsCreateModalOpen(true);
+    })) return;
+    setEditingListing(listing);
+    setIsCreateModalOpen(true);
+  };
+
+  const handleUpdateListing = async (updatedListing: Listing) => {
+    if (!ensureVerifiedUtmUser('save listing changes')) return;
+
+    const res = await storageService.updateListing(updatedListing.id, updatedListing);
+    if (res) {
+      setListings((prev) => prev.map((l) => (l.id === res.id ? res : l)));
+      addToast('success', 'Listing Updated', `"${res.title}" details and stock updated.`);
+    }
+    setEditingListing(null);
+    setIsCreateModalOpen(false);
+  };
+
+  const handleDeleteListing = async (listingId: string) => {
+    if (!ensureVerifiedUtmUser('delete a listing')) return;
+
+    await storageService.deleteListing(listingId);
+    setListings((prev) => prev.filter((l) => l.id !== listingId));
+    addToast('info', 'Listing Deleted', 'The listing was removed from the campus marketplace.');
+  };
+
+  // --- PURCHASE / TRADE REQUEST FROM MODAL ---
   const handleTradeRequestSubmit = async (requestData: any) => {
     if (!ensureVerifiedUtmUser('submit purchase requests')) return;
 
@@ -438,9 +473,10 @@ export default function App() {
     setTradeRequests((prev) => [newReq, ...prev]);
     setTradeModalListing(null);
 
+    const totalStr = (newReq.totalPrice || (newReq.offeredPrice * (newReq.quantity || 1))).toFixed(2);
     storageService.sendChatMessage(
       `chat-${newReq.sellerName.toLowerCase().replace(/\s+/g, '-')}`,
-      `Hi ${newReq.sellerName}! I submitted an offer of RM ${newReq.offeredPrice.toFixed(2)} for "${newReq.listingTitle}". Handover at ${newReq.pickupLocation}.`,
+      `Hi ${newReq.sellerName}! I requested to buy ${newReq.quantity || 1}x "${newReq.listingTitle}" (Total: RM ${totalStr}). Handover spot: ${newReq.pickupLocation}.`,
       currentUser?.id || 'buyer',
       currentUser?.name || 'Buyer',
       {
@@ -451,11 +487,12 @@ export default function App() {
       }
     );
     setConversations(storageService.getChatConversations());
+    setNotifications(storageService.getNotifications());
 
     addToast(
       'success',
-      'Offer Delivered!',
-      `Sent offer of RM ${newReq.offeredPrice.toFixed(2)} to ${newReq.sellerName}. View in Me > Buy Requests.`
+      'Purchase Request Sent!',
+      `Requested ${newReq.quantity || 1}x "${newReq.listingTitle}" from ${newReq.sellerName}. View in Me > Buy Requests.`
     );
   };
 
@@ -464,8 +501,62 @@ export default function App() {
 
     storageService.updateTradeRequestStatus(requestId, status).then((updated) => {
       setTradeRequests(updated);
+      setNotifications(storageService.getNotifications());
     });
     addToast('info', `Status Updated: ${status}`, 'Trade status updated.');
+  };
+
+  // Buyer submits payment screenshot
+  const handleSubmitPaymentProof = async (requestId: string, proofUrl: string, method: string) => {
+    if (!ensureVerifiedUtmUser('submit payment proof')) return;
+
+    const updated = await storageService.submitPaymentProof(requestId, proofUrl, method);
+    if (updated) {
+      setTradeRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)));
+      setNotifications(storageService.getNotifications());
+      addToast('success', 'Payment Proof Submitted!', 'Your receipt is now under review by the seller.');
+    }
+  };
+
+  // Seller ONLY: approves transaction and automatically deducts stock
+  const handleApproveTransaction = async (requestId: string) => {
+    if (!ensureVerifiedUtmUser('approve transaction')) return;
+
+    const res = await storageService.approveTransaction(requestId);
+    if (res.success && res.request) {
+      setTradeRequests((prev) => prev.map((r) => (r.id === requestId ? res.request! : r)));
+      if (res.listing) {
+        setListings((prev) => prev.map((l) => (l.id === res.listing!.id ? res.listing! : l)));
+      }
+      setNotifications(storageService.getNotifications());
+      addToast('success', 'Transaction Approved!', `Stock updated (${res.listing?.remainingQuantity ?? 0} remaining). Coordinate meetup in Chat.`);
+    } else {
+      addToast('error', 'Approval Error', res.error || 'Failed to approve transaction.');
+    }
+  };
+
+  // Seller ONLY: rejects payment proof
+  const handleRejectPaymentProof = async (requestId: string, reason: string) => {
+    if (!ensureVerifiedUtmUser('reject payment proof')) return;
+
+    const updated = await storageService.rejectPaymentProof(requestId, reason);
+    if (updated) {
+      setTradeRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)));
+      setNotifications(storageService.getNotifications());
+      addToast('info', 'Payment Proof Rejected', 'Buyer has been requested to provide an updated receipt.');
+    }
+  };
+
+  // Finalize transaction handover
+  const handleCompleteTransaction = async (requestId: string) => {
+    if (!ensureVerifiedUtmUser('complete transaction')) return;
+
+    const updated = await storageService.completeTransaction(requestId);
+    if (updated) {
+      setTradeRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)));
+      setNotifications(storageService.getNotifications());
+      addToast('success', 'Transaction Completed!', 'Campus handover recorded as complete.');
+    }
   };
 
   // ==========================================
@@ -881,6 +972,13 @@ export default function App() {
             onResetData={handleResetData}
             onSignOut={handleSignOut}
             onOpenAuthModal={() => handleOpenAuthModal('login')}
+            onDeleteListing={handleDeleteListing}
+            onEditListing={handleEditListing}
+            onSubmitPaymentProof={handleSubmitPaymentProof}
+            onApproveTransaction={handleApproveTransaction}
+            onRejectPaymentProof={handleRejectPaymentProof}
+            onCompleteTransaction={handleCompleteTransaction}
+            onStartChat={(sellerName) => handleStartChat(sellerName)}
           />
         )}
       </main>
@@ -907,6 +1005,9 @@ export default function App() {
             setTradeModalListing(listing);
           }}
           reviews={reviews}
+          currentUserId={currentUser?.id}
+          currentUserEmail={currentUser?.email || userProfile.email}
+          currentUserName={currentUser?.name || userProfile.name}
         />
       )}
 
@@ -921,12 +1022,17 @@ export default function App() {
         />
       )}
 
-      {/* Create Listing ("Sell an Item") Modal */}
+      {/* Create Listing ("Sell an Item") Modal with Edit support */}
       {isCreateModalOpen && (
         <CreateListingModal
           isOpen={isCreateModalOpen}
-          onClose={() => setIsCreateModalOpen(false)}
+          initialListing={editingListing}
+          onClose={() => {
+            setIsCreateModalOpen(false);
+            setEditingListing(null);
+          }}
           onListingCreated={handleCreateListing}
+          onListingUpdated={handleUpdateListing}
         />
       )}
 

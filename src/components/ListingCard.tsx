@@ -46,8 +46,8 @@ export const ListingCard: React.FC<ListingCardProps> = ({
           </div>
         )}
 
-        {/* Condition Tag */}
-        <div className="absolute top-2 left-2 flex items-center gap-1">
+        {/* Condition & Stock Tag */}
+        <div className="absolute top-2 left-2 flex items-center gap-1 flex-wrap">
           <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold tracking-tight shadow-xs ${
             isNew 
               ? 'bg-emerald-600 text-white' 
@@ -55,11 +55,15 @@ export const ListingCard: React.FC<ListingCardProps> = ({
           }`}>
             {conditionLabel}
           </span>
-          {listing.condition === 'Like New' && (
-            <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[9px] font-semibold border border-blue-200 hidden sm:inline-block">
-              Like New
+          {(listing.remainingQuantity === 0 || listing.status === 'Sold') ? (
+            <span className="px-1.5 py-0.5 bg-rose-600 text-white rounded-md text-[9px] font-bold shadow-xs">
+              Sold Out
             </span>
-          )}
+          ) : (typeof listing.remainingQuantity === 'number' && listing.remainingQuantity <= 3) ? (
+            <span className="px-1.5 py-0.5 bg-amber-500 text-white rounded-md text-[9px] font-bold shadow-xs">
+              Only {listing.remainingQuantity} left
+            </span>
+          ) : null}
         </div>
 
         {/* Favorite Save Button */}
