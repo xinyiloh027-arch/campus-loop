@@ -78,7 +78,7 @@ export interface CartItem {
 
 export type Condition = 'Brand New' | 'Like New' | 'Good' | 'Fair';
 
-export type ListingStatus = 'Active' | 'Reserved' | 'Completed' | 'Removed' | 'Sold';
+export type ListingStatus = 'Active' | 'Reserved' | 'Completed' | 'Removed' | 'Sold' | 'Deleted' | 'Delisted';
 
 export type ListingType = 'Trade' | 'Borrow' | 'Free' | 'Clearance';
 

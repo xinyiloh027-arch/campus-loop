@@ -236,7 +236,12 @@ export const storageService = {
     return updatedItem;
   },
 
-  async deleteListing(id: string): Promise<void> {
+  async deleteListing(id: string, sellerId?: string): Promise<{ success: boolean; error?: string }> {
+    const current = this.getListings();
+    const target = current.find(item => item.id === id);
+    if (sellerId && target && target.sellerId && target.sellerId !== sellerId) {
+      return { success: false, error: 'Unauthorized: Only the seller can delete this listing.' };
+    }
     const { auth, db } = initFirebase();
     if (db && auth?.currentUser) {
       try {
@@ -246,11 +251,11 @@ export const storageService = {
       }
     }
 
-    const current = this.getListings();
     const updated = current.filter(item => item.id !== id);
     try {
       localStorage.setItem(LISTINGS_KEY, JSON.stringify(updated));
     } catch {}
+    return { success: true };
   },
 
   async fetchListings(): Promise<Listing[]> {
@@ -306,6 +311,36 @@ export const storageService = {
 
     // Default to local listings
     callback(this.getListings());
+    return () => {};
+  },
+
+  subscribeToTradeRequests(callback: (trades: TradeRequest[]) => void): () => void {
+    const { db } = initFirebase();
+    if (db) {
+      try {
+        const q = query(collection(db, 'trades'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const items: TradeRequest[] = [];
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data();
+            items.push({
+              ...(data as any),
+              id: docSnap.id,
+            });
+          });
+          items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+          localStorage.setItem(REQUESTS_KEY, JSON.stringify(items));
+          callback(items);
+        }, (err) => {
+          console.warn('Firestore trade requests subscription fallback:', err);
+          callback(this.getTradeRequests());
+        });
+        return unsubscribe;
+      } catch (e) {
+        console.warn('Firestore trades query error:', e);
+      }
+    }
+    callback(this.getTradeRequests());
     return () => {};
   },
 
@@ -609,11 +644,14 @@ export const storageService = {
    * Strict validation: checks available stock against requested quantity
    * Deducts quantity from remainingQuantity, marks listing 'Sold' if remaining is 0
    */
-  async approveTransaction(requestId: string): Promise<{ success: boolean; error?: string; request?: TradeRequest; listing?: Listing }> {
+  async approveTransaction(requestId: string, sellerId?: string): Promise<{ success: boolean; error?: string; request?: TradeRequest; listing?: Listing }> {
     const requests = this.getTradeRequests();
     const targetReq = requests.find(r => r.id === requestId);
     if (!targetReq) {
       return { success: false, error: 'Purchase request not found.' };
+    }
+    if (sellerId && targetReq.sellerId && targetReq.sellerId !== sellerId) {
+      return { success: false, error: 'Unauthorized: Only the seller can approve this request.' };
     }
 
     const { auth, db } = initFirebase();
@@ -760,13 +798,22 @@ export const storageService = {
    * Seller ONLY: Reject payment proof
    * Keeps stock unchanged and notifies buyer with reason
    */
-  async rejectPaymentProof(requestId: string, reason: string): Promise<TradeRequest | null> {
+  async rejectPaymentProof(requestId: string, reason: string, sellerId?: string): Promise<{ success: boolean; error?: string; request?: TradeRequest }> {
+    const requests = this.getTradeRequests();
+    const targetReq = requests.find(r => r.id === requestId);
+    if (!targetReq) {
+      return { success: false, error: 'Purchase request not found.' };
+    }
+    if (sellerId && targetReq.sellerId && targetReq.sellerId !== sellerId) {
+      return { success: false, error: 'Unauthorized: Only the seller can reject this payment proof.' };
+    }
+
     const extra: Partial<TradeRequest> = {
       rejectionReason: reason.trim() || 'Payment proof was unclear or did not match the expected amount.',
     };
 
     const updatedList = await this.updateTradeRequestStatus(requestId, 'Payment Proof Rejected', extra);
-    const updated = updatedList.find(r => r.id === requestId) || null;
+    const updated = updatedList.find(r => r.id === requestId);
 
     if (updated) {
       this.addCampusNotification(
@@ -775,9 +822,10 @@ export const storageService = {
         'trade_request',
         'me'
       );
+      return { success: true, request: updated };
     }
 
-    return updated;
+    return { success: false, error: 'Could not update payment proof status.' };
   },
 
   /**
@@ -1317,8 +1365,6 @@ export const storageService = {
     return this.saveChatConversations(updated);
   },
 
-    return this.saveChatConversations(updated);
-  },
 
   // --- VIRTUAL PET & SAVINGS HELPERS ---
   getVirtualPet(): any {

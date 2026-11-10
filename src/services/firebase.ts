@@ -32,6 +32,8 @@ import {
   runTransaction
 } from 'firebase/firestore';
 
+import appletFirebaseConfig from '../../firebase-applet-config.json';
+
 export interface FirebaseConfig {
   apiKey: string;
   authDomain: string;
@@ -43,17 +45,8 @@ export interface FirebaseConfig {
   firestoreDatabaseId?: string;
 }
 
-// User-provided Firebase project configuration
-const DEFAULT_FIREBASE_CONFIG: FirebaseConfig = {
-  apiKey: "AIzaSyCZ_tT97ykMTZnWmLEE4wEK6HijL_Qn1iw",
-  authDomain: "campusloop-e43e1.firebaseapp.com",
-  projectId: "campusloop-e43e1",
-  storageBucket: "campusloop-e43e1.firebasestorage.app",
-  messagingSenderId: "279304400122",
-  appId: "1:279304400122:web:99978f80d6b6cc773d6d43",
-  measurementId: "G-XSTD6JM228",
-  firestoreDatabaseId: "(default)"
-};
+// Provisioned Firebase project configuration
+const DEFAULT_FIREBASE_CONFIG: FirebaseConfig = appletFirebaseConfig;
 
 let firebaseApp: FirebaseApp | null = null;
 let firebaseAuth: Auth | null = null;

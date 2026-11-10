@@ -52,29 +52,39 @@ export const HomeView: React.FC<HomeViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Active marketplace listings (exclude deleted, delisted, and sold-out products)
+  const activeListings = useMemo(() => {
+    return listings.filter((l) => 
+      l.status !== 'Deleted' && 
+      l.status !== 'Delisted' && 
+      l.status !== 'Sold' && 
+      (typeof l.remainingQuantity !== 'number' || l.remainingQuantity > 0)
+    );
+  }, [listings]);
+
   // Recommended products (curated top campus items)
   const recommendedListings = useMemo(() => {
-    return listings.slice(0, 4);
-  }, [listings]);
+    return activeListings.slice(0, 4);
+  }, [activeListings]);
 
   // Recently listed (sorted by newest)
   const recentlyListed = useMemo(() => {
-    return [...listings]
+    return [...activeListings]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 4);
-  }, [listings]);
+  }, [activeListings]);
 
   // Filtered listings if search is active
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
     const q = searchQuery.toLowerCase().trim();
-    return listings.filter((l) => 
+    return activeListings.filter((l) => 
       l.title.toLowerCase().includes(q) ||
       l.description.toLowerCase().includes(q) ||
       l.category.toLowerCase().includes(q) ||
       (l.campusLocation || l.location || '').toLowerCase().includes(q)
     );
-  }, [listings, searchQuery]);
+  }, [activeListings, searchQuery]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6 text-left space-y-6">

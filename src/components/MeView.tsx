@@ -157,29 +157,33 @@ export const MeView: React.FC<MeViewProps> = ({
   const effectiveName = currentUser?.name || profile.name;
   const effectiveId = currentUser?.id;
 
-  // Real User Listings: Matched by sellerId, sellerName, or user email
+  // Real User Listings: strictly matched by sellerId, user email, or seller display name
   const myListings = isUserSignedIn
-    ? listings.filter((l) => 
-        (effectiveId && (l as any).sellerId === effectiveId) ||
-        (effectiveEmail && l.sellerContact === effectiveEmail) ||
-        (effectiveName && l.sellerName === effectiveName)
-      )
+    ? listings.filter((l) => {
+        if (l.status === 'Deleted' || l.status === 'Delisted') return false;
+        if (effectiveId && (l as any).sellerId) return (l as any).sellerId === effectiveId;
+        if (effectiveEmail && l.sellerContact) return l.sellerContact.toLowerCase() === effectiveEmail.toLowerCase();
+        if (effectiveName && l.sellerName) return l.sellerName === effectiveName;
+        return false;
+      })
     : [];
 
   const myPurchases = isUserSignedIn
-    ? tradeRequests.filter((r) => 
-        (effectiveId && (r as any).buyerId === effectiveId) ||
-        (effectiveEmail && r.buyerContact === effectiveEmail) ||
-        r.buyerName === effectiveName ||
-        r.isSentByCurrentUser
-      )
+    ? tradeRequests.filter((r) => {
+        if (effectiveId && (r as any).buyerId) return (r as any).buyerId === effectiveId;
+        if (effectiveEmail && r.buyerContact) return r.buyerContact.toLowerCase() === effectiveEmail.toLowerCase();
+        if (effectiveName && r.buyerName) return r.buyerName === effectiveName;
+        return false;
+      })
     : [];
 
   const mySales = isUserSignedIn
-    ? tradeRequests.filter((r) => 
-        !r.isSentByCurrentUser && 
-        ((effectiveId && (r as any).sellerId === effectiveId) || r.sellerName === effectiveName)
-      )
+    ? tradeRequests.filter((r) => {
+        if (effectiveId && (r as any).sellerId) return (r as any).sellerId === effectiveId;
+        if (effectiveEmail && (r as any).sellerContact) return (r as any).sellerContact.toLowerCase() === effectiveEmail.toLowerCase();
+        if (effectiveName && r.sellerName) return r.sellerName === effectiveName;
+        return false;
+      })
     : [];
 
   // --- RENTAL FILTERING (Cleared when signed out) ---
@@ -187,7 +191,8 @@ export const MeView: React.FC<MeViewProps> = ({
     ? rentalItems.filter((item) => 
         (effectiveId && (item as any).ownerId === effectiveId) ||
         (effectiveEmail && item.ownerContact === effectiveEmail) ||
-        (effectiveName && item.ownerName === effectiveName)
+        item.ownerName === effectiveName ||
+        item.isUserCreated
       )
     : [];
 
@@ -1552,58 +1557,137 @@ export const MeView: React.FC<MeViewProps> = ({
                         </div>
                       </div>
 
-                      {/* Pickup location */}
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 bg-slate-50 p-2 rounded-xl border border-slate-100 truncate">
-                        <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                        <span className="truncate">{item.campusLocation || item.location || 'Campus handover'}</span>
-                      </div>
+                      {/* Purchase request count & status */}
+                      {(() => {
+                        const itemTrades = tradeRequests.filter((r) => r.listingId === item.id);
+                        const pendingReq = itemTrades.find((r) => r.status === 'Payment Under Review' || r.status === 'Pending Seller Response');
 
-                      {/* Actions on listing */}
-                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
-                        <button
-                          type="button"
-                          onClick={() => onSelectListing(item)}
-                          className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
-                        >
-                          <Eye className="w-3 h-3 text-slate-500" />
-                          <span>View</span>
-                        </button>
+                        return (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-1 text-[11px] text-slate-500 bg-slate-50 p-2 rounded-xl border border-slate-100 flex-wrap">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                <span className="truncate">{item.campusLocation || item.location || 'Campus handover'}</span>
+                              </div>
+                              <span className="text-[10px] px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 font-bold shrink-0">
+                                {itemTrades.length} Request{itemTrades.length === 1 ? '' : 's'}
+                              </span>
+                            </div>
 
-                        <div className="flex items-center gap-1.5">
-                          {onEditListing && (
-                            <button
-                              type="button"
-                              onClick={() => onEditListing(item)}
-                              className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-                              title="Edit item price, stock quantity, or photo"
-                            >
-                              <Edit className="w-3 h-3" />
-                              <span>Edit</span>
-                            </button>
-                          )}
+                            {/* Actions on listing */}
+                            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => onSelectListing(item)}
+                                className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3 text-slate-500" />
+                                <span>View Product</span>
+                              </button>
 
-                          {onDeleteListing && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (window.confirm(`Delete listing "${item.title}"? This cannot be undone.`)) {
-                                  onDeleteListing(item.id);
-                                }
-                              }}
-                              className="px-2.5 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
-                              title="Delete this listing"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              <span>Delete</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {pendingReq && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedSellerReviewRequest(pendingReq)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-xs"
+                                    title="Review payment proof and approve transaction"
+                                  >
+                                    <ShieldCheck className="w-3 h-3 text-white" />
+                                    <span>Approve Transaction</span>
+                                  </button>
+                                )}
+
+                                {onEditListing && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onEditListing(item)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                                    title="Edit item price, stock quantity, or photo"
+                                  >
+                                    <Edit className="w-3 h-3" />
+                                    <span>Edit</span>
+                                  </button>
+                                )}
+
+                                {onDeleteListing && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteConfirmListingId(item.id)}
+                                    className="px-2.5 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                    title="Delete this product from marketplace"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>Delete Product</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
             </div>
           )}
+
+          {/* Delete Product Confirmation Modal */}
+          {deleteConfirmListingId && (() => {
+            const targetItem = myListings.find((l) => l.id === deleteConfirmListingId);
+            return (
+              <div 
+                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in-50"
+                onClick={() => setDeleteConfirmListingId(null)}
+              >
+                <div 
+                  className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-left space-y-4"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Delete Product Listing</h3>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Are you sure you want to delete this product? Other users will no longer be able to see it.
+                    </p>
+                  </div>
+                  {targetItem && (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-3">
+                      <img src={targetItem.imageUrl} alt="" className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-900 truncate">{targetItem.title}</p>
+                        <p className="text-[11px] text-blue-600 font-bold">RM {targetItem.price.toFixed(2)}</p>
+                        <p className="text-[10px] text-slate-500">Remaining Stock: {targetItem.remainingQuantity ?? 1} unit(s)</p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmListingId(null)}
+                      className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold text-xs cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onDeleteListing && deleteConfirmListingId) {
+                          onDeleteListing(deleteConfirmListingId);
+                        }
+                        setDeleteConfirmListingId(null);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm cursor-pointer"
+                    >
+                      Confirm Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 

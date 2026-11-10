@@ -17,7 +17,6 @@ import {
 } from './types';
 import { storageService } from './services/storageService';
 import { authService } from './services/authService';
-import { initFirebase } from './services/firebase';
 import { Navbar, NavTab } from './components/Navbar';
 import { HomeView } from './components/HomeView';
 import { MallView } from './components/MallView';
@@ -107,19 +106,6 @@ export default function App() {
       setNotifications(storageService.getNotifications());
       setCurrentUser(authService.getCurrentUser());
       setAccountState(authService.getAccountState());
-
-      // Fetch latest from Firestore to guarantee fresh remote items for all users
-      storageService.fetchListings().then((realListings) => {
-        if (realListings && realListings.length >= 0) {
-          setListings(realListings);
-        }
-      }).catch(() => {});
-
-      storageService.fetchRentalItems().then((realRentals) => {
-        if (realRentals && realRentals.length >= 0) {
-          setRentalItems(realRentals);
-        }
-      }).catch(() => {});
     } catch (e) {
       console.error('Error loading initial data:', e);
     } finally {
@@ -153,11 +139,20 @@ export default function App() {
           emailVerified: user.emailVerified,
           isSuspended: user.isSuspended,
         }));
-        // Re-fetch marketplace listings as authenticated user
-        storageService.fetchListings().then((items) => {
-          if (items) setListings(items);
-        }).catch(() => {});
       }
+    });
+
+    // Real-time Firestore subscriptions for listings, trades, and rentals
+    const unsubscribeListings = storageService.subscribeToListings((realListings) => {
+      setListings(realListings);
+    });
+
+    const unsubscribeTrades = storageService.subscribeToTradeRequests((realTrades) => {
+      setTradeRequests(realTrades);
+    });
+
+    const unsubscribeRentals = storageService.subscribeToRentalItems((realRentals) => {
+      setRentalItems(realRentals);
     });
 
     const handleOpenListing = () => {
@@ -176,26 +171,13 @@ export default function App() {
 
     return () => {
       unsubscribeAuth();
+      unsubscribeListings();
+      unsubscribeTrades();
+      unsubscribeRentals();
       window.removeEventListener('campusloop:open-create-listing', handleOpenListing);
       window.removeEventListener('focus', handleWindowFocus);
     };
   }, []);
-
-  // Dedicated real-time Firestore subscriptions linked to user auth state
-  useEffect(() => {
-    const unsubscribeListings = storageService.subscribeToListings((realListings) => {
-      setListings(realListings);
-    });
-
-    const unsubscribeRentals = storageService.subscribeToRentalItems((realRentals) => {
-      setRentalItems(realRentals);
-    });
-
-    return () => {
-      unsubscribeListings();
-      unsubscribeRentals();
-    };
-  }, [currentUser?.id, currentUser?.emailVerified]);
 
   // ==========================================
   // TRANSACTION GATEKEEPER
@@ -440,39 +422,24 @@ export default function App() {
   const handleCreateListing = async (newListingData: any) => {
     if (!ensureVerifiedUtmUser('publish a product listing')) return;
 
-    try {
-      const { auth } = initFirebase();
-      const activeUid = auth?.currentUser?.uid || currentUser?.id || 'uid';
-      const activeName = auth?.currentUser?.displayName || currentUser?.name || userProfile.name;
-      const activeEmail = auth?.currentUser?.email || currentUser?.email || userProfile.email;
-      const activeFaculty = currentUser?.faculty || userProfile.faculty;
-      const activeAvatar = currentUser?.avatarUrl || userProfile.avatarUrl;
+    const sellerId = currentUser?.id || `utm-${Date.now()}`;
+    const sellerName = currentUser?.name || userProfile.name || 'UTM Student';
+    const sellerContact = currentUser?.email || userProfile.email || '';
+    const sellerFaculty = currentUser?.faculty || userProfile.faculty || '';
+    const sellerAvatar = currentUser?.avatarUrl || userProfile.avatarUrl;
 
-      const created = await storageService.createListing({
-        ...newListingData,
-        sellerId: activeUid,
-        sellerName: activeName,
-        sellerContact: activeEmail,
-        sellerFaculty: activeFaculty,
-        sellerAvatar: activeAvatar,
-      });
-
-      setListings((prev) => [created, ...prev.filter((l) => l.id !== created.id)]);
-      setIsCreateModalOpen(false);
-      setEditingListing(null);
-      addToast(
-        'success',
-        'Listing Published!',
-        `"${created.title}" (${created.remainingQuantity || 1} units) is now visible in the marketplace.`
-      );
-    } catch (err: any) {
-      console.error('Failed to publish listing:', err);
-      addToast(
-        'error',
-        'Publishing Failed',
-        err?.message || 'Could not save listing to Firestore. Please check your connection and try again.'
-      );
-    }
+    const created = await storageService.createListing({
+      ...newListingData,
+      sellerId,
+      sellerName,
+      sellerContact,
+      sellerFaculty,
+      sellerAvatar,
+    });
+    setListings((prev) => [created, ...prev.filter((l) => l.id !== created.id)]);
+    setIsCreateModalOpen(false);
+    setEditingListing(null);
+    addToast('success', 'Listing Published to Shared Marketplace!', `"${created.title}" (${created.remainingQuantity || 1} units) is now visible to all students.`);
   };
 
   const handleEditListing = (listing: Listing) => {
@@ -490,7 +457,7 @@ export default function App() {
     const res = await storageService.updateListing(updatedListing.id, updatedListing);
     if (res) {
       setListings((prev) => prev.map((l) => (l.id === res.id ? res : l)));
-      addToast('success', 'Listing Updated', `"${res.title}" details and stock updated.`);
+      addToast('success', 'Listing Updated', `"${res.title}" details and stock updated across the marketplace.`);
     }
     setEditingListing(null);
     setIsCreateModalOpen(false);
@@ -499,30 +466,42 @@ export default function App() {
   const handleDeleteListing = async (listingId: string) => {
     if (!ensureVerifiedUtmUser('delete a listing')) return;
 
-    await storageService.deleteListing(listingId);
-    setListings((prev) => prev.filter((l) => l.id !== listingId));
-    addToast('info', 'Listing Deleted', 'The listing was removed from the campus marketplace.');
+    try {
+      const res = await storageService.deleteListing(listingId, currentUser?.id);
+      if (res && !res.success) {
+        addToast('error', 'Cannot Delete', res.error || 'Failed to delete listing.');
+        return;
+      }
+      setListings((prev) => prev.filter((l) => l.id !== listingId));
+      addToast('success', 'Product Deleted', 'The product has been removed from the shared marketplace.');
+    } catch (err: any) {
+      addToast('error', 'Delete Failed', err?.message || 'Could not delete product.');
+    }
   };
 
   // --- PURCHASE / TRADE REQUEST FROM MODAL ---
   const handleTradeRequestSubmit = async (requestData: any) => {
     if (!ensureVerifiedUtmUser('submit purchase requests')) return;
 
+    const buyerId = currentUser?.id || `utm-${Date.now()}`;
+    const buyerName = currentUser?.name || userProfile.name || 'UTM Student';
+    const buyerContact = currentUser?.email || userProfile.email || '';
+
     const newReq = await storageService.createTradeRequest({
       ...requestData,
-      buyerId: currentUser?.id || 'uid',
-      buyerName: currentUser?.name || userProfile.name,
-      buyerContact: currentUser?.email || userProfile.email,
+      buyerId,
+      buyerName,
+      buyerContact,
     });
-    setTradeRequests((prev) => [newReq, ...prev]);
+    setTradeRequests((prev) => [newReq, ...prev.filter((r) => r.id !== newReq.id)]);
     setTradeModalListing(null);
 
     const totalStr = (newReq.totalPrice || (newReq.offeredPrice * (newReq.quantity || 1))).toFixed(2);
     storageService.sendChatMessage(
       `chat-${newReq.sellerName.toLowerCase().replace(/\s+/g, '-')}`,
       `Hi ${newReq.sellerName}! I requested to buy ${newReq.quantity || 1}x "${newReq.listingTitle}" (Total: RM ${totalStr}). Handover spot: ${newReq.pickupLocation}.`,
-      currentUser?.id || 'buyer',
-      currentUser?.name || 'Buyer',
+      buyerId,
+      buyerName,
       {
         id: newReq.listingId,
         title: newReq.listingTitle,
@@ -566,7 +545,7 @@ export default function App() {
   const handleApproveTransaction = async (requestId: string) => {
     if (!ensureVerifiedUtmUser('approve transaction')) return;
 
-    const res = await storageService.approveTransaction(requestId);
+    const res = await storageService.approveTransaction(requestId, currentUser?.id);
     if (res.success && res.request) {
       setTradeRequests((prev) => prev.map((r) => (r.id === requestId ? res.request! : r)));
       if (res.listing) {
@@ -583,11 +562,13 @@ export default function App() {
   const handleRejectPaymentProof = async (requestId: string, reason: string) => {
     if (!ensureVerifiedUtmUser('reject payment proof')) return;
 
-    const updated = await storageService.rejectPaymentProof(requestId, reason);
-    if (updated) {
-      setTradeRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)));
+    const res = await storageService.rejectPaymentProof(requestId, reason, currentUser?.id);
+    if (res.success && res.request) {
+      setTradeRequests((prev) => prev.map((r) => (r.id === requestId ? res.request! : r)));
       setNotifications(storageService.getNotifications());
       addToast('info', 'Payment Proof Rejected', 'Buyer has been requested to provide an updated receipt.');
+    } else {
+      addToast('error', 'Action Failed', res.error || 'Could not reject payment proof.');
     }
   };
 

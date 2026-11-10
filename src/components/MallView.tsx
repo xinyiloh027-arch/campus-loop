@@ -77,6 +77,16 @@ export const MallView: React.FC<MallViewProps> = ({
   const filteredListings = useMemo(() => {
     return listings
       .filter((listing) => {
+        // Exclude deleted, delisted, and sold-out products from active marketplace
+        if (
+          listing.status === 'Deleted' || 
+          listing.status === 'Delisted' || 
+          listing.status === 'Sold' || 
+          (typeof listing.remainingQuantity === 'number' && listing.remainingQuantity <= 0)
+        ) {
+          return false;
+        }
+
         // Search
         const query = searchQuery.toLowerCase().trim();
         const matchesSearch =
