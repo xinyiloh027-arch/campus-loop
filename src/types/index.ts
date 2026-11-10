@@ -627,6 +627,7 @@ export type RentalCategory = typeof RENTAL_CATEGORIES[number];
 
 export type RentalStatus = 
   | 'Pending Approval'
+  | 'Pending'
   | 'Approved'
   | 'Ready for Handover'
   | 'Rented Out'

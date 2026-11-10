@@ -104,7 +104,7 @@ class AuthService {
             id: fbUser.uid,
             email: fbUser.email || '',
             name: fbUser.displayName || fbUser.email?.split('@')[0] || 'UTM Student',
-            role: fbUser.email?.endsWith('@utm.my') ? 'staff' : 'student',
+            role: 'student', // Safe default role; staff privileges require trusted administrative whitelist
             accountState: userState,
             emailVerified: fbUser.emailVerified,
             isSuspended: false,
@@ -269,7 +269,8 @@ class AuthService {
         await updateProfile(userCred.user, { displayName: name.trim() });
         await sendEmailVerification(userCred.user);
 
-        const role = val.domain === 'utm.my' ? 'staff' : 'student';
+        // Safe default role for normal user registration. Staff privileges require trusted administrative verification.
+        const role: 'student' | 'staff' = 'student';
         const newUtmUser: UTMUser = {
           id: userCred.user.uid,
           email: trimmedEmail,
@@ -326,7 +327,8 @@ class AuthService {
       return { success: false, message: 'An account with this UTM email address is already registered. Please sign in or use Forgot Password.' };
     }
 
-    const role = val.domain === 'utm.my' ? 'staff' : 'student';
+    // Safe default role for student registration
+    const role: 'student' | 'staff' = 'student';
     const newUser: StoredUserAccount = {
       id: `utm-${Date.now()}`,
       email: trimmedEmail,
@@ -506,22 +508,15 @@ class AuthService {
             id: auth.currentUser.uid,
             email: auth.currentUser.email || targetEmail || '',
             name: auth.currentUser.displayName || 'UTM Student',
-            role: (auth.currentUser.email || '').endsWith('@utm.my') ? 'staff' : 'student',
+            role: 'student',
             accountState: 'Verified UTM Member',
             emailVerified: true,
             isSuspended: false,
             createdAt: auth.currentUser.metadata.creationTime || new Date().toISOString()
           };
 
-          if (db) {
-            setDoc(doc(db, 'users', auth.currentUser.uid), {
-              emailVerified: true,
-              accountState: 'Verified UTM Member'
-            }, { merge: true }).catch((e) => {
-              console.warn('Could not update firestore user verification status:', e);
-            });
-          }
-
+          // Note: emailVerified and accountState in Firestore are protected fields
+          // The client session is updated locally, and Firebase Auth JWT token is refreshed with email_verified: true
           this.saveLocalSession(verifiedUser, `fb-${auth.currentUser.uid}`);
           this.notifyListeners(verifiedUser);
 
@@ -599,7 +594,7 @@ class AuthService {
           id: fbUser.uid,
           email: trimmedEmail,
           name: fbUser.displayName || trimmedEmail.split('@')[0],
-          role: val.domain === 'utm.my' ? 'staff' : 'student',
+          role: 'student',
           accountState: 'Verified UTM Member',
           emailVerified: true,
           isSuspended: false,

@@ -1,0 +1,86 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Default deny catch-all
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUtmDomain(email) {
+      return email is string && (
+        email.matches('(?i)^[a-zA-Z0-9._%+-]+@(graduate\\.utm\\.my|student\\.utm\\.my|utm\\.my)$') ||
+        email.matches('^[a-zA-Z0-9._%+-]+@(graduate\\.utm\\.my|student\\.utm\\.my|utm\\.my)$') ||
+        email.matches('^[a-zA-Z0-9._%+-]+@(GRADUATE\\.UTM\\.MY|STUDENT\\.UTM\\.MY|UTM\\.MY)$') ||
+        email.matches('.*@[gG][rR][aA][dD][uU][aA][tT][eE]\\.[uU][tT][mM]\\.[mM][yY]$') ||
+        email.matches('.*@[sS][tT][uU][dD][eE][nN][tT]\\.[uU][tT][mM]\\.[mM][yY]$') ||
+        email.matches('.*@[uU][tT][mM]\\.[mM][yY]$')
+      );
+    }
+
+    function isVerifiedUtmUser() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        isUtmDomain(request.auth.token.email) &&
+        request.auth.token.get('suspended', false) == false;
+    }
+
+    function isImageFile() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+    }
+
+    // User profile avatars (/avatars/{userId}/{fileName})
+    match /avatars/{userId}/{fileName} {
+      // Verified UTM members can read student avatars
+      allow read: if isVerifiedUtmUser();
+      // Only the account owner can upload/update/delete their avatar, max 5MB, image only
+      allow write: if isVerifiedUtmUser() && 
+        request.auth.uid == userId && 
+        isImageFile() && 
+        request.resource.size <= 5 * 1024 * 1024;
+      allow delete: if isVerifiedUtmUser() && request.auth.uid == userId;
+    }
+
+    // Marketplace listing photos (/listings/{sellerId}/{fileName})
+    match /listings/{sellerId}/{fileName} {
+      // Verified UTM members can browse listing images
+      allow read: if isVerifiedUtmUser();
+      // Only the authenticated seller can upload photos, max 10MB, image only
+      allow write: if isVerifiedUtmUser() && 
+        request.auth.uid == sellerId && 
+        isImageFile() && 
+        request.resource.size <= 10 * 1024 * 1024;
+      allow delete: if isVerifiedUtmUser() && request.auth.uid == sellerId;
+    }
+
+    // Rental item photos (/rentals/{ownerId}/{fileName})
+    match /rentals/{ownerId}/{fileName} {
+      // Verified UTM members can browse rental equipment images
+      allow read: if isVerifiedUtmUser();
+      // Only the owner can upload equipment photos, max 10MB, image only
+      allow write: if isVerifiedUtmUser() && 
+        request.auth.uid == ownerId && 
+        isImageFile() && 
+        request.resource.size <= 10 * 1024 * 1024;
+      allow delete: if isVerifiedUtmUser() && request.auth.uid == ownerId;
+    }
+
+    // Private transaction payment proofs (/payment_proofs/{tradeId}/{fileName})
+    // Strictly confidential: Only buyer who submitted it or seller verifying it can read
+    match /payment_proofs/{tradeId}/{fileName} {
+      // Only authenticated, verified UTM buyer can upload receipt (image or PDF, max 10MB)
+      allow write: if isVerifiedUtmUser() && 
+        (request.resource.contentType.matches('image/(jpeg|png|webp)') || request.resource.contentType == 'application/pdf') &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.metadata.buyerId == request.auth.uid;
+      // Read access restricted to verified UTM users associated with the transaction metadata
+      allow read: if isVerifiedUtmUser() && 
+        (resource.metadata.buyerId == request.auth.uid || resource.metadata.sellerId == request.auth.uid);
+      allow delete: if false;
+    }
+  }
+}

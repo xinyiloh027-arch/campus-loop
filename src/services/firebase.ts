@@ -28,7 +28,8 @@ import {
   orderBy, 
   onSnapshot,
   serverTimestamp,
-  getDocFromServer
+  getDocFromServer,
+  runTransaction
 } from 'firebase/firestore';
 
 export interface FirebaseConfig {
@@ -209,5 +210,6 @@ export {
   orderBy,
   onSnapshot,
   serverTimestamp,
-  getDocFromServer
+  getDocFromServer,
+  runTransaction
 };

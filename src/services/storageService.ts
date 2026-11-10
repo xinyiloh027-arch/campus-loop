@@ -37,7 +37,8 @@ import {
   query, 
   where, 
   orderBy, 
-  onSnapshot
+  onSnapshot,
+  runTransaction
 } from './firebase';
 
 const LISTINGS_KEY = 'campusloop_real_listings_v1';
@@ -73,7 +74,27 @@ function cleanupLegacyMockStorage() {
 
 cleanupLegacyMockStorage();
 
+function isValidCalendarDate(dateStr: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (y < 2024 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && (date.getUTCMonth() + 1) === m && date.getUTCDate() === d;
+}
+
+function calculateRentalDays(startDate: string, returnDate: string): number {
+  const [sy, sm, sd] = startDate.split('-').map(Number);
+  const [ry, rm, rd] = returnDate.split('-').map(Number);
+  const startUtc = Date.UTC(sy, sm - 1, sd);
+  const returnUtc = Date.UTC(ry, rm - 1, rd);
+  const diffDays = Math.round((returnUtc - startUtc) / 86400000);
+  return Math.max(1, diffDays);
+}
+
 export const storageService = {
+  // Helpers
+  isValidCalendarDate,
+  calculateRentalDays,
   // --- LISTINGS ---
   getListings(): Listing[] {
     try {
@@ -103,6 +124,15 @@ export const storageService = {
       console.warn('Could not read listings from localStorage:', e);
     }
     return [];
+  },
+
+  saveListings(listings: Listing[]): Listing[] {
+    try {
+      localStorage.setItem(LISTINGS_KEY, JSON.stringify(listings));
+    } catch (e) {
+      console.error('Failed to save listings locally:', e);
+    }
+    return listings;
   },
 
   async createListing(listingData: Omit<Listing, 'id' | 'createdAt' | 'status' | 'isUserCreated'> & {
@@ -136,14 +166,10 @@ export const storageService = {
       isUserCreated: true,
     };
 
-    // 1. Firebase Firestore sync
-    if (db && docRef) {
-      if (auth?.currentUser) {
-        try {
-          await auth.currentUser.getIdToken(true);
-        } catch {}
-      }
+    // 1. Firebase Firestore sync (only if authenticated)
+    if (db && docRef && auth?.currentUser) {
       try {
+        await auth.currentUser.getIdToken(true);
         await setDoc(docRef, newListing);
         console.info('Listing successfully persisted to Firestore with ID:', finalId);
       } catch (err) {
@@ -195,8 +221,8 @@ export const storageService = {
       return item;
     });
 
-    const { db } = initFirebase();
-    if (db && updatedItem) {
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser && updatedItem) {
       try {
         await updateDoc(doc(db, 'listings', id), updatedItem);
       } catch (err) {
@@ -211,8 +237,8 @@ export const storageService = {
   },
 
   async deleteListing(id: string): Promise<void> {
-    const { db } = initFirebase();
-    if (db) {
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser) {
       try {
         await deleteDoc(doc(db, 'listings', id));
       } catch (err) {
@@ -318,13 +344,9 @@ export const storageService = {
       createdAt: new Date().toISOString(),
     };
 
-    if (db && docRef) {
-      if (auth?.currentUser) {
-        try {
-          await auth.currentUser.getIdToken(true);
-        } catch {}
-      }
+    if (db && docRef && auth?.currentUser) {
       try {
+        await auth.currentUser.getIdToken(true);
         await setDoc(docRef, newItem);
         console.info('Rental successfully persisted to Firestore with ID:', finalId);
       } catch (err) {
@@ -340,8 +362,8 @@ export const storageService = {
   },
 
   async updateRentalItem(id: string, updates: Partial<RentalItem>): Promise<RentalItem | null> {
-    const { db } = initFirebase();
-    if (db) {
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser) {
       try {
         await updateDoc(doc(db, 'rentals', id), updates);
       } catch (err) {
@@ -365,8 +387,8 @@ export const storageService = {
   },
 
   async deleteRentalItem(id: string): Promise<void> {
-    const { db } = initFirebase();
-    if (db) {
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser) {
       try {
         await deleteDoc(doc(db, 'rentals', id));
       } catch (err) {
@@ -478,8 +500,8 @@ export const storageService = {
       isSentByCurrentUser: true,
     };
 
-    const { db } = initFirebase();
-    if (db) {
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser) {
       try {
         const docRef = await addDoc(collection(db, 'trades'), newRequest);
         newRequest.id = docRef.id;
@@ -536,8 +558,8 @@ export const storageService = {
       return req;
     });
 
-    const { db } = initFirebase();
-    if (db && updatedReq) {
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser && updatedReq) {
       try {
         await updateDoc(doc(db, 'trades', requestId), { status, ...(extra || {}) });
       } catch (err) {
@@ -594,53 +616,133 @@ export const storageService = {
       return { success: false, error: 'Purchase request not found.' };
     }
 
-    const listings = this.getListings();
-    const listing = listings.find(l => l.id === targetReq.listingId);
-    if (!listing) {
-      return { success: false, error: 'Associated product listing not found.' };
-    }
-
-    const requestedQty = targetReq.quantity || 1;
-    const currentRemaining = typeof listing.remainingQuantity === 'number' ? listing.remainingQuantity : 1;
-
-    // Strict inventory conflict check
-    if (currentRemaining < requestedQty) {
-      return {
-        success: false,
-        error: `Insufficient stock! Only ${currentRemaining} unit(s) remaining, but ${requestedQty} unit(s) were requested.`
-      };
-    }
-
-    // Deduct stock
-    const newRemaining = Math.max(0, currentRemaining - requestedQty);
-    const updatedListing = await this.updateListing(listing.id, {
-      remainingQuantity: newRemaining,
-      status: newRemaining === 0 ? 'Sold' : 'Active',
-    });
-
+    const { auth, db } = initFirebase();
     const now = new Date().toISOString();
-    const extra: Partial<TradeRequest> = {
-      approvedAt: now,
-    };
+    let updatedReq: TradeRequest | undefined;
+    let updatedListing: Listing | undefined;
 
-    const updatedList = await this.updateTradeRequestStatus(requestId, 'Approved', extra);
-    const updatedReq = updatedList.find(r => r.id === requestId);
+    // 1. Atomic Firestore Transaction (when connected to Firebase)
+    if (db && auth?.currentUser) {
+      try {
+        await runTransaction(db, async (tx) => {
+          const tradeDocRef = doc(db, 'trades', requestId);
+          const tradeSnap = await tx.get(tradeDocRef);
+          if (!tradeSnap.exists()) {
+            throw new Error('Purchase request not found in Firestore.');
+          }
+          const tradeData = tradeSnap.data() as TradeRequest;
+          if (tradeData.sellerId !== auth.currentUser?.uid) {
+            throw new Error('Unauthorized: Only the seller can approve this request.');
+          }
+          const allowedSourceStates = ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'];
+          if (!allowedSourceStates.includes(tradeData.status)) {
+            throw new Error(`Cannot approve transaction in status "${tradeData.status}".`);
+          }
+
+          const listingDocRef = doc(db, 'listings', tradeData.listingId);
+          const listingSnap = await tx.get(listingDocRef);
+          if (!listingSnap.exists()) {
+            throw new Error('Associated product listing not found.');
+          }
+          const listingData = listingSnap.data() as Listing;
+          const statusStr = (listingData.status as string) || '';
+          if (statusStr !== 'Active' && statusStr !== 'active') {
+            throw new Error(`Listing is no longer active (current status: ${listingData.status}).`);
+          }
+
+          const reqQty = typeof tradeData.quantity === 'number' && tradeData.quantity > 0 ? Math.floor(tradeData.quantity) : 1;
+          const currentRemaining = typeof listingData.remainingQuantity === 'number' ? listingData.remainingQuantity : 1;
+
+          if (currentRemaining < reqQty) {
+            throw new Error(`Insufficient stock! Only ${currentRemaining} unit(s) remaining, but ${reqQty} unit(s) were requested.`);
+          }
+
+          const newRemaining = Math.max(0, currentRemaining - reqQty);
+          const newListingStatus: Listing['status'] = newRemaining === 0 ? 'Sold' : 'Active';
+
+          // Atomically decrement stock on listing and mark trade approved
+          tx.update(listingDocRef, {
+            remainingQuantity: newRemaining,
+            status: newListingStatus,
+          });
+
+          tx.update(tradeDocRef, {
+            status: 'Approved',
+            approvedAt: now,
+          });
+
+          updatedListing = {
+            ...listingData,
+            remainingQuantity: newRemaining,
+            status: newListingStatus,
+          };
+          updatedReq = {
+            ...tradeData,
+            status: 'Approved',
+            approvedAt: now,
+          };
+        });
+      } catch (err: any) {
+        console.error('Atomic transaction failed in approveTransaction:', err);
+        return {
+          success: false,
+          error: err.message || 'Failed to approve transaction due to a database concurrency conflict.',
+        };
+      }
+    }
+
+    // 2. Synchronize local state
+    if (!updatedReq || !updatedListing) {
+      // Local fallback execution if offline or without Firebase Auth
+      const listings = this.getListings();
+      const listing = listings.find(l => l.id === targetReq.listingId);
+      if (!listing) {
+        return { success: false, error: 'Associated product listing not found.' };
+      }
+
+      const requestedQty = targetReq.quantity || 1;
+      const currentRemaining = typeof listing.remainingQuantity === 'number' ? listing.remainingQuantity : 1;
+
+      if (currentRemaining < requestedQty) {
+        return {
+          success: false,
+          error: `Insufficient stock! Only ${currentRemaining} unit(s) remaining, but ${requestedQty} unit(s) were requested.`
+        };
+      }
+
+      const newRemaining = Math.max(0, currentRemaining - requestedQty);
+      updatedListing = (await this.updateListing(listing.id, {
+        remainingQuantity: newRemaining,
+        status: newRemaining === 0 ? 'Sold' : 'Active',
+      })) || undefined;
+
+      const updatedList = await this.updateTradeRequestStatus(requestId, 'Approved', { approvedAt: now });
+      updatedReq = updatedList.find(r => r.id === requestId);
+    } else {
+      const currentListings = this.getListings();
+      const nextListings = currentListings.map(l => l.id === updatedListing!.id ? updatedListing! : l);
+      this.saveListings(nextListings);
+
+      const currentRequests = this.getTradeRequests();
+      const nextRequests = currentRequests.map(r => r.id === updatedReq!.id ? updatedReq! : r);
+      this.saveTradeRequests(nextRequests);
+    }
 
     // Notify buyer
     this.addCampusNotification(
       'Purchase Approved!',
-      `Seller approved payment of RM ${(targetReq.totalPrice || targetReq.offeredPrice).toFixed(2)} for ${requestedQty}x "${targetReq.listingTitle}". Coordinate campus meetup in Chat!`,
+      `Seller approved payment of RM ${(targetReq.totalPrice || targetReq.offeredPrice).toFixed(2)} for ${targetReq.quantity || 1}x "${targetReq.listingTitle}". Coordinate campus meetup in Chat!`,
       'trade_request',
       'chat'
     );
 
     // If stock depleted to 0, notify any conflicting pending requests
-    if (newRemaining === 0) {
-      const otherPending = requests.filter(r => r.listingId === listing.id && r.id !== requestId && ['Pending Seller Response', 'Payment Under Review'].includes(r.status));
+    if (updatedListing && updatedListing.remainingQuantity === 0) {
+      const otherPending = this.getTradeRequests().filter(r => r.listingId === updatedListing!.id && r.id !== requestId && ['Pending Seller Response', 'Payment Under Review'].includes(r.status));
       for (const pending of otherPending) {
         this.addCampusNotification(
           'Item Out of Stock',
-          `"${listing.title}" is now sold out. Your request #${pending.id.slice(-6)} cannot be fulfilled.`,
+          `"${updatedListing.title}" is now sold out. Your request #${pending.id.slice(-6)} cannot be fulfilled.`,
           'trade_request',
           'mall'
         );
@@ -650,7 +752,7 @@ export const storageService = {
     return {
       success: true,
       request: updatedReq,
-      listing: updatedListing || undefined,
+      listing: updatedListing,
     };
   },
 
@@ -749,15 +851,40 @@ export const storageService = {
   },
 
   async createRentalRequest(requestData: Omit<RentalRequest, 'id' | 'createdAt' | 'updatedAt'>): Promise<RentalRequest> {
+    const startDate = requestData.startDate?.trim() || '';
+    const returnDate = requestData.returnDate?.trim() || '';
+
+    if (!isValidCalendarDate(startDate) || !isValidCalendarDate(returnDate)) {
+      throw new Error('Invalid or impossible calendar date provided (e.g. Feb 31 or Apr 31). Format must be YYYY-MM-DD.');
+    }
+    if (startDate > returnDate) {
+      throw new Error('Return date must be on or after start date.');
+    }
+
+    // Standard rental days count: calendar date difference (exclusive of return boundary, 1 day minimum)
+    const calculatedDays = calculateRentalDays(startDate, returnDate);
+
+    const pricePerDay = requestData.pricePerDay;
+    const securityDeposit = requestData.securityDeposit;
+    const rentalFeeTotal = pricePerDay * calculatedDays;
+    const totalBeforeRental = rentalFeeTotal + securityDeposit;
+
     const newReq: RentalRequest = {
       ...requestData,
       id: `rental-req-${Date.now()}`,
+      startDate,
+      returnDate,
+      days: calculatedDays,
+      rentalFeeTotal,
+      totalBeforeRental,
+      status: requestData.status || 'Pending Approval',
+      depositStatus: requestData.depositStatus || 'Not Paid',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    const { db } = initFirebase();
-    if (db) {
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser) {
       try {
         const docRef = await addDoc(collection(db, 'rentalRequests'), newReq);
         newReq.id = docRef.id;
@@ -785,8 +912,44 @@ export const storageService = {
     const now = new Date().toISOString();
     const payload = { status, updatedAt: now, ...(extraData || {}) };
 
-    const { db } = initFirebase();
-    if (db) {
+    const { auth, db } = initFirebase();
+
+    // 1. Atomic transaction for owner approval
+    if (status === 'Approved' && db && auth?.currentUser) {
+      try {
+        await runTransaction(db, async (tx) => {
+          const reqRef = doc(db, 'rentalRequests', id);
+          const reqSnap = await tx.get(reqRef);
+          if (!reqSnap.exists()) {
+            throw new Error('Rental request not found in Firestore.');
+          }
+          const reqData = reqSnap.data() as RentalRequest;
+          if (reqData.ownerId !== auth.currentUser?.uid) {
+            throw new Error('Unauthorized: Only the item owner can approve this booking.');
+          }
+          if (reqData.status !== 'Pending' && reqData.status !== 'Pending Approval') {
+            throw new Error(`Cannot approve booking in status "${reqData.status}".`);
+          }
+
+          const rentalRef = doc(db, 'rentals', reqData.rentalItemId);
+          const rentalSnap = await tx.get(rentalRef);
+          if (!rentalSnap.exists()) {
+            throw new Error('Rental item not found.');
+          }
+          const rentalData = rentalSnap.data() as RentalItem;
+          if (rentalData.isAvailable === false) {
+            throw new Error('This rental item is currently unavailable or booked.');
+          }
+
+          // Atomically reserve rental item and approve request
+          tx.update(rentalRef, { isAvailable: false });
+          tx.update(reqRef, payload);
+        });
+      } catch (err: any) {
+        console.error('Atomic transaction failed in updateRentalRequestStatus:', err);
+        return null;
+      }
+    } else if (db && auth?.currentUser) {
       try {
         await updateDoc(doc(db, 'rentalRequests', id), payload);
       } catch (err) {
@@ -803,7 +966,7 @@ export const storageService = {
 
         if (status === 'Approved' || status === 'Rented Out') {
           this.updateRentalItem(req.rentalItemId, { isAvailable: false });
-        } else if (status === 'Completed' || status === 'Rejected' || status === 'Cancelled') {
+        } else if (status === 'Completed' || status === 'Rejected') {
           const hasOtherActive = this.getRentalRequests().some(
             (other) => other.id !== id && other.rentalItemId === req.rentalItemId && 
               ['Approved', 'Rented Out', 'Ready for Handover', 'Return Pending'].includes(other.status)
@@ -1012,33 +1175,72 @@ export const storageService = {
       return existing;
     }
 
+    const newConvoId = `chat-${Date.now()}`;
+    const initialMessageText = listing ? `Hi! I'm inquiring about "${listing.title}".` : 'Started a conversation.';
+    const initialMessage: ChatMessage | null = listing ? {
+      id: `msg-${Date.now()}`,
+      senderId: currentUserId,
+      senderName: currentUserName,
+      text: initialMessageText,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      sharedListing: {
+        id: listing.id,
+        title: listing.title,
+        price: listing.price,
+        imageUrl: listing.imageUrl,
+      },
+    } : null;
+
     const newConvo: ChatConversation = {
-      id: `chat-${Date.now()}`,
+      id: newConvoId,
       type: 'direct',
       name: otherUserName,
       participants: [
         { id: otherUserId, name: otherUserName, role: 'Peer' },
         { id: currentUserId, name: currentUserName, role: 'Me' }
       ],
-      lastMessage: listing ? `Hi! I'm inquiring about "${listing.title}".` : 'Started a conversation.',
+      lastMessage: initialMessageText,
       lastMessageTime: 'Just now',
       unreadCount: 0,
-      messages: listing ? [
-        {
-          id: `msg-${Date.now()}`,
-          senderId: currentUserId,
-          senderName: currentUserName,
-          text: `Hi! I'm inquiring about "${listing.title}".`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          sharedListing: {
-            id: listing.id,
-            title: listing.title,
-            price: listing.price,
-            imageUrl: listing.imageUrl
-          }
-        }
-      ] : []
+      messages: initialMessage ? [initialMessage] : []
     };
+
+    // Firebase Firestore Sync (store conversation header WITHOUT embedded messages)
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser) {
+      try {
+        const convoHeader = {
+          id: newConvoId,
+          type: 'direct',
+          name: otherUserName,
+          buyerId: currentUserId,
+          sellerId: otherUserId,
+          participantIds: [otherUserId, currentUserId],
+          lastMessage: initialMessageText,
+          lastMessageTime: 'Just now',
+          unreadCount: 0,
+          updatedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+        };
+        setDoc(doc(db, 'conversations', newConvoId), convoHeader).catch((err) => {
+          console.warn('Firestore conversation header write warning:', err);
+        });
+
+        // Store initial message in the messages subcollection
+        if (initialMessage) {
+          const msgRef = doc(collection(db, 'conversations', newConvoId, 'messages'), initialMessage.id);
+          setDoc(msgRef, {
+            ...initialMessage,
+            conversationId: newConvoId,
+            createdAt: new Date().toISOString(),
+          }).catch((err) => {
+            console.warn('Firestore subcollection message write warning:', err);
+          });
+        }
+      } catch (err) {
+        console.warn('Firestore chat sync warning:', err);
+      }
+    }
 
     const updated = [newConvo, ...convos];
     this.saveChatConversations(updated);
@@ -1066,16 +1268,42 @@ export const storageService = {
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    const newMsg: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      senderId: actualSenderId,
+      senderName: actualSenderName,
+      text,
+      timestamp: timeStr,
+      sharedListing: actualSharedListing
+    };
+
+    // Firebase Firestore Sync: Write strictly to the subcollection, update header metadata only
+    const { auth, db } = initFirebase();
+    if (db && auth?.currentUser) {
+      try {
+        const msgRef = doc(collection(db, 'conversations', conversationId, 'messages'), newMsg.id);
+        setDoc(msgRef, {
+          ...newMsg,
+          conversationId,
+          createdAt: now.toISOString(),
+        }).catch((err) => {
+          console.warn('Firestore message subcollection write warning:', err);
+        });
+
+        updateDoc(doc(db, 'conversations', conversationId), {
+          lastMessage: text,
+          lastMessageTime: timeStr,
+          updatedAt: now.toISOString(),
+        }).catch((err) => {
+          console.warn('Firestore conversation header update warning:', err);
+        });
+      } catch (err) {
+        console.warn('Firestore sendChatMessage sync warning:', err);
+      }
+    }
+
     const updated = convos.map(c => {
       if (c.id === conversationId) {
-        const newMsg: ChatMessage = {
-          id: `msg-${Date.now()}`,
-          senderId: actualSenderId,
-          senderName: actualSenderName,
-          text,
-          timestamp: timeStr,
-          sharedListing: actualSharedListing
-        };
         return {
           ...c,
           lastMessage: text,
@@ -1085,6 +1313,9 @@ export const storageService = {
       }
       return c;
     });
+
+    return this.saveChatConversations(updated);
+  },
 
     return this.saveChatConversations(updated);
   },

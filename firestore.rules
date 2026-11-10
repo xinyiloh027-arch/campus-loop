@@ -7,24 +7,43 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Helper functions
+    // ===============================================================
+    // HELPER FUNCTIONS & AUTHENTICATION VALIDATION
+    // ===============================================================
     function isSignedIn() {
       return request.auth != null;
     }
 
+    // Validates official UTM student and staff email domains.
+    // Handles case-insensitive matching portably across all Firestore rule interpreters.
     function isUtmDomain(email) {
-      return email.matches('.*@graduate\\.utm\\.my$') ||
-             email.matches('.*@student\\.utm\\.my$') ||
-             email.matches('.*@utm\\.my$') ||
-             email.matches('.*@GRADUATE\\.UTM\\.MY$') ||
-             email.matches('.*@STUDENT\\.UTM\\.MY$') ||
-             email.matches('.*@UTM\\.MY$');
+      return email is string && (
+        email.matches('(?i)^[a-zA-Z0-9._%+-]+@(graduate\\.utm\\.my|student\\.utm\\.my|utm\\.my)$') ||
+        email.matches('^[a-zA-Z0-9._%+-]+@(graduate\\.utm\\.my|student\\.utm\\.my|utm\\.my)$') ||
+        email.matches('^[a-zA-Z0-9._%+-]+@(GRADUATE\\.UTM\\.MY|STUDENT\\.UTM\\.MY|UTM\\.MY)$') ||
+        email.matches('.*@[gG][rR][aA][dD][uU][aA][tT][eE]\\.[uU][tT][mM]\\.[mM][yY]$') ||
+        email.matches('.*@[sS][tT][uU][dD][eE][nN][tT]\\.[uU][tT][mM]\\.[mM][yY]$') ||
+        email.matches('.*@[uU][tT][mM]\\.[mM][yY]$')
+      );
     }
 
+    // Server-controlled suspension verification.
+    // Checks custom auth claims first, then falls back to persistent user profile if it exists.
+    // Safely returns false if the user profile has not yet been created.
+    function isSuspended() {
+      return request.auth.token.get('suspended', false) == true ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isSuspended', false) == true ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('accountState', '') == 'Suspended'));
+    }
+
+    // Only signed-in users with verified UTM email addresses who are NOT suspended can access protected data.
+    // Firebase Authentication is the single authoritative source of truth.
     function isVerifiedUtmUser() {
       return isSignedIn() &&
         request.auth.token.email_verified == true &&
-        isUtmDomain(request.auth.token.email);
+        isUtmDomain(request.auth.token.email) &&
+        !isSuspended();
     }
 
     function isValidId(id) {
@@ -39,110 +58,615 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // 1. User Profiles (/users/{userId})
-    match /users/{userId} {
-      allow get: if isSignedIn();
-      allow list: if false; // Blanket listing of all user accounts is disallowed for privacy
-      allow create: if isVerifiedUtmUser() && request.auth.uid == userId &&
-        incoming().keys().hasAll(['id', 'email', 'name', 'role', 'accountState', 'emailVerified', 'createdAt']) &&
-        incoming().id == request.auth.uid &&
-        incoming().email == request.auth.token.email &&
-        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100;
-      allow update: if isVerifiedUtmUser() && request.auth.uid == userId &&
-        incoming().id == existing().id &&
-        incoming().email == existing().email &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'studentId', 'faculty', 'dorm', 'avatarUrl', 'contactHandle']);
-      allow delete: if false; // User accounts cannot be arbitrarily deleted from client
+    function getListing(listingId) {
+      return get(/databases/$(database)/documents/listings/$(listingId)).data;
     }
 
-    // 2. Product Listings (/listings/{listingId})
+    function listingExists(listingId) {
+      return exists(/databases/$(database)/documents/listings/$(listingId));
+    }
+
+    function getRental(rentalId) {
+      return get(/databases/$(database)/documents/rentals/$(rentalId)).data;
+    }
+
+    function rentalExists(rentalId) {
+      return exists(/databases/$(database)/documents/rentals/$(rentalId));
+    }
+
+    // ===============================================================
+    // 1. USER PROFILES (/users/{userId})
+    // ===============================================================
+    match /users/{userId} {
+      // Verified UTM members can read individual profiles (e.g. view seller faculty, rating, display name)
+      allow get: if isVerifiedUtmUser();
+      // Blanket listing / scraping of all registered student accounts is strictly forbidden
+      allow list: if false;
+
+      // Registration: User creates their initial profile document matching their Firebase Auth credentials.
+      // Strict schema validation prevents injecting shadow fields or elevated roles.
+      // Ordinary registration defaults strictly to 'student'.
+      // Staff privileges can ONLY be established if verified against the trusted administrative staff whitelist.
+      allow create: if isVerifiedUtmUser() && 
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        incoming().keys().hasAll(['id', 'email', 'name', 'role', 'accountState', 'emailVerified', 'createdAt']) &&
+        incoming().keys().hasOnly([
+          'id', 'email', 'name', 'role', 'accountState', 'emailVerified', 'createdAt',
+          'studentId', 'faculty', 'dorm', 'avatarUrl', 'contactHandle',
+          'verifiedTransactionsCount', 'isSuspended', 'savedListingIds'
+        ]) &&
+        incoming().id == request.auth.uid &&
+        incoming().email == request.auth.token.email &&
+        incoming().emailVerified == request.auth.token.email_verified &&
+        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100 &&
+        (incoming().role == 'student' || 
+         (incoming().role == 'staff' && exists(/databases/$(database)/documents/staff_whitelist/$(request.auth.uid)))) &&
+        incoming().accountState in ['Email Verification Pending', 'Verified UTM Member'] &&
+        (!('isSuspended' in incoming()) || incoming().isSuspended == false) &&
+        (!('verifiedTransactionsCount' in incoming()) || incoming().verifiedTransactionsCount == 0) &&
+        (!('savedListingIds' in incoming()) || (incoming().savedListingIds is list && incoming().savedListingIds.size() <= 200));
+
+      // Profile updates: Users can ONLY edit legitimate profile fields.
+      // Modifying emailVerified, accountState, isSuspended, role, or verifiedTransactionsCount is strictly prohibited.
+      allow update: if isVerifiedUtmUser() && 
+        request.auth.uid == userId &&
+        incoming().id == existing().id &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'studentId', 'faculty', 'dorm', 'avatarUrl', 'contactHandle', 'savedListingIds'
+        ]) &&
+        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100 &&
+        (!('studentId' in incoming()) || (incoming().studentId is string && incoming().studentId.size() <= 50)) &&
+        (!('faculty' in incoming()) || (incoming().faculty is string && incoming().faculty.size() <= 100)) &&
+        (!('dorm' in incoming()) || (incoming().dorm is string && incoming().dorm.size() <= 100)) &&
+        (!('avatarUrl' in incoming()) || (incoming().avatarUrl is string && incoming().avatarUrl.size() <= 1000)) &&
+        (!('contactHandle' in incoming()) || (incoming().contactHandle is string && incoming().contactHandle.size() <= 100)) &&
+        (!('savedListingIds' in incoming()) || (incoming().savedListingIds is list && incoming().savedListingIds.size() <= 200));
+
+      // Client-side account deletion is prohibited to maintain marketplace audit trails
+      allow delete: if false;
+    }
+
+    // ===============================================================
+    // 2. PRODUCT LISTINGS (/listings/{listingId})
+    // ===============================================================
     match /listings/{listingId} {
-      // Allow authenticated, eligible and email-verified UTM users to read active product listings created by other eligible users
-      // Also allow public marketplace feed for university students
-      allow get: if isVerifiedUtmUser() || isSignedIn() || true;
-      allow list: if isVerifiedUtmUser() || isSignedIn() || true;
-      allow create: if isVerifiedUtmUser() && isValidId(listingId) &&
-        incoming().keys().hasAll(['title', 'description', 'price', 'category', 'condition', 'sellerId', 'sellerName', 'status', 'createdAt']) &&
+      // All verified UTM students can browse marketplace listings
+      allow get: if isVerifiedUtmUser();
+      allow list: if isVerifiedUtmUser();
+
+      // Only verified UTM members can publish listings, setting sellerId to their own Firebase UID
+      // Strict keys().hasOnly([...]) prevents injecting arbitrary or unauthorized attributes
+      allow create: if isVerifiedUtmUser() && 
+        isValidId(listingId) &&
+        incoming().keys().hasAll([
+          'title', 'description', 'price', 'category', 'condition', 'sellerId', 'sellerName', 'status', 'createdAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'id', 'title', 'description', 'price', 'category', 'condition',
+          'campusLocation', 'location', 'imageUrl', 'additionalImages',
+          'isActualPhoto', 'sellerExplanation', 'sellerId', 'sellerName', 'sellerContact',
+          'sellerFaculty', 'sellerAvatar', 'sellerRating', 'isUserCreated', 'createdAt', 'status',
+          'listingType', 'originalQuantity', 'remainingQuantity',
+          'borrowFeePerDay', 'depositRequired', 'maxBorrowDays',
+          'availablePeriod', 'returnConditions', 'clearanceTag',
+          'isBundle', 'bundleItemsCount', 'isbn', 'author', 'edition',
+          'courseCode', 'publisher', 'publicationYear', 'referencePriceMin',
+          'referencePriceMax', 'marketAverage', 'competitors', 'priceHistory'
+        ]) &&
         incoming().sellerId == request.auth.uid &&
+        (!('id' in incoming()) || incoming().id == listingId) &&
         incoming().price is number && incoming().price >= 0 &&
         incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
-        (incoming().status == 'Active' || incoming().status == 'active' || incoming().status == 'Sold');
-      allow update: if isVerifiedUtmUser() && (
-        // Seller editing their own listing
-        (existing().sellerId == request.auth.uid && incoming().sellerId == existing().sellerId) ||
-        // Status and inventory transitions on purchase completion
-        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'remainingQuantity', 'originalQuantity']))
-      );
+        incoming().description is string && incoming().description.size() <= 2000 &&
+        incoming().condition in ['Brand New', 'Like New', 'Good', 'Fair'] &&
+        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed'] &&
+        (!('originalQuantity' in incoming()) || (incoming().originalQuantity is int && incoming().originalQuantity >= 1)) &&
+        (!('remainingQuantity' in incoming()) || (
+          incoming().remainingQuantity is int && 
+          incoming().remainingQuantity >= 0 &&
+          (!('originalQuantity' in incoming()) || incoming().remainingQuantity <= incoming().originalQuantity)
+        ));
+
+      // Only the authenticated seller can edit their own listing.
+      // Protects immutable fields: id, sellerId, createdAt, isUserCreated.
+      // Limits affected keys strictly to permitted listing details and inventory fields.
+      allow update: if isVerifiedUtmUser() && 
+        existing().sellerId == request.auth.uid &&
+        incoming().sellerId == existing().sellerId &&
+        incoming().createdAt == existing().createdAt &&
+        (!('id' in incoming()) || incoming().id == existing().id || incoming().id == listingId) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'description', 'price', 'category', 'condition',
+          'campusLocation', 'location', 'imageUrl', 'additionalImages',
+          'isActualPhoto', 'sellerExplanation', 'sellerName', 'sellerContact',
+          'sellerFaculty', 'sellerAvatar', 'sellerRating', 'status',
+          'listingType', 'originalQuantity', 'remainingQuantity',
+          'borrowFeePerDay', 'depositRequired', 'maxBorrowDays',
+          'availablePeriod', 'returnConditions', 'clearanceTag',
+          'isBundle', 'bundleItemsCount', 'isbn', 'author', 'edition',
+          'courseCode', 'publisher', 'publicationYear', 'referencePriceMin',
+          'referencePriceMax', 'marketAverage', 'competitors', 'priceHistory'
+        ]) &&
+        incoming().price is number && incoming().price >= 0 &&
+        incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
+        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed'] &&
+        (!('originalQuantity' in incoming()) || (incoming().originalQuantity is int && incoming().originalQuantity >= 1)) &&
+        (!('remainingQuantity' in incoming()) || (
+          incoming().remainingQuantity is int && 
+          incoming().remainingQuantity >= 0 &&
+          (!('originalQuantity' in incoming()) || incoming().remainingQuantity <= incoming().originalQuantity) &&
+          (!('originalQuantity' in existing()) || incoming().remainingQuantity <= existing().originalQuantity)
+        ));
+
+      // Only the seller can delete their listing
       allow delete: if isVerifiedUtmUser() && existing().sellerId == request.auth.uid;
     }
 
-    // 3. Rental Items (/rentals/{rentalId})
+    // ===============================================================
+    // 3. RENTAL ITEMS (/rentals/{rentalId})
+    // ===============================================================
     match /rentals/{rentalId} {
-      allow get: if isVerifiedUtmUser() || isSignedIn() || true;
-      allow list: if isVerifiedUtmUser() || isSignedIn() || true; // Public campus rental browse
-      allow create: if isVerifiedUtmUser() && isValidId(rentalId) &&
-        incoming().keys().hasAll(['name', 'description', 'category', 'condition', 'pricePerDay', 'securityDeposit', 'pickupLocation', 'ownerId', 'ownerName', 'isAvailable', 'createdAt']) &&
+      // All verified UTM students can browse available rental items
+      allow get: if isVerifiedUtmUser();
+      allow list: if isVerifiedUtmUser();
+
+      // Only verified UTM members can list items for rent, setting ownerId to their own UID
+      // Strict keys().hasOnly([...]) prevents injecting unauthorized fields
+      allow create: if isVerifiedUtmUser() && 
+        isValidId(rentalId) &&
+        incoming().keys().hasAll([
+          'name', 'description', 'category', 'condition', 'pricePerDay', 'securityDeposit', 
+          'pickupLocation', 'ownerId', 'ownerName', 'isAvailable', 'createdAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'id', 'name', 'description', 'category', 'condition', 'images', 'imageUrl',
+          'pricePerDay', 'securityDeposit', 'availableDates', 'pickupLocation',
+          'rules', 'rentalRules', 'ownerId', 'ownerName', 'ownerContact', 'ownerAvatar',
+          'ownerRating', 'ownerFaculty', 'isAvailable', 'isUserCreated', 'createdAt'
+        ]) &&
         incoming().ownerId == request.auth.uid &&
+        (!('id' in incoming()) || incoming().id == rentalId) &&
         incoming().pricePerDay is number && incoming().pricePerDay >= 0 &&
         incoming().securityDeposit is number && incoming().securityDeposit >= 0 &&
-        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 150;
-      allow update: if isVerifiedUtmUser() && (
-        (existing().ownerId == request.auth.uid && incoming().ownerId == existing().ownerId) ||
-        (incoming().diff(existing()).affectedKeys().hasOnly(['isAvailable']))
-      );
+        incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 150 &&
+        incoming().description is string && incoming().description.size() <= 2000 &&
+        incoming().condition in ['Brand New', 'Like New', 'Good', 'Fair'] &&
+        incoming().isAvailable is bool;
+
+      // Only the authenticated owner can modify their rental item.
+      // Protects immutable fields: id, ownerId, createdAt, isUserCreated.
+      // Limits affected keys strictly to permitted rental specifications and availability.
+      allow update: if isVerifiedUtmUser() && 
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        (!('id' in incoming()) || incoming().id == existing().id || incoming().id == rentalId) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'description', 'category', 'condition', 'images', 'imageUrl',
+          'pricePerDay', 'securityDeposit', 'availableDates', 'pickupLocation',
+          'rules', 'rentalRules', 'ownerName', 'ownerContact', 'ownerAvatar',
+          'ownerRating', 'ownerFaculty', 'isAvailable'
+        ]) &&
+        incoming().pricePerDay is number && incoming().pricePerDay >= 0 &&
+        incoming().securityDeposit is number && incoming().securityDeposit >= 0 &&
+        (!('isAvailable' in incoming()) || incoming().isAvailable is bool);
+
+      // Only the owner can delete their rental item
       allow delete: if isVerifiedUtmUser() && existing().ownerId == request.auth.uid;
     }
 
-    // 4. Trade & Purchase Requests (/trades/{tradeId})
+    // ===============================================================
+    // 4. TRADE & PURCHASE REQUESTS (/trades/{tradeId})
+    // ===============================================================
     match /trades/{tradeId} {
-      allow get: if isVerifiedUtmUser() && (resource.data.buyerId == request.auth.uid || resource.data.sellerId == request.auth.uid);
-      allow list: if isVerifiedUtmUser();
-      allow create: if isVerifiedUtmUser() && isValidId(tradeId) &&
-        incoming().keys().hasAll(['listingId', 'buyerId', 'buyerName', 'sellerId', 'sellerName', 'offeredPrice', 'status', 'createdAt']) &&
+      // Only the relevant buyer or seller can view the private transaction record
+      allow get: if isVerifiedUtmUser() && (
+        resource.data.buyerId == request.auth.uid || 
+        resource.data.sellerId == request.auth.uid
+      );
+      // Queries must be filtered by buyerId or sellerId matching current user's UID
+      allow list: if isVerifiedUtmUser() && (
+        resource.data.buyerId == request.auth.uid || 
+        resource.data.sellerId == request.auth.uid
+      );
+
+      // Only the buyer can initiate a purchase request.
+      // Cross-document validation: Verifies listing exists, is active, belongs to seller, has stock, and calculates total correctly.
+      allow create: if isVerifiedUtmUser() && 
+        isValidId(tradeId) &&
+        incoming().keys().hasAll([
+          'listingId', 'buyerId', 'buyerName', 'sellerId', 'sellerName', 
+          'offeredPrice', 'quantity', 'totalPrice', 'pickupLocation', 'status', 'createdAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'id', 'listingId', 'listingTitle', 'listingPrice', 'listingImage',
+          'sellerId', 'sellerName', 'buyerId', 'buyerName', 'buyerContact',
+          'offeredPrice', 'pickupLocation', 'message', 'status', 'createdAt',
+          'isSentByCurrentUser', 'quantity', 'totalPrice'
+        ]) &&
         incoming().buyerId == request.auth.uid &&
-        incoming().status == 'Pending';
-      allow update: if isVerifiedUtmUser() && (
-        // Seller accepting/rejecting
-        existing().sellerId == request.auth.uid ||
-        // Buyer cancelling
-        existing().buyerId == request.auth.uid
-      ) && incoming().buyerId == existing().buyerId && incoming().sellerId == existing().sellerId;
-      allow delete: if false;
-    }
+        incoming().sellerId != request.auth.uid &&
+        listingExists(incoming().listingId) &&
+        getListing(incoming().listingId).sellerId == incoming().sellerId &&
+        getListing(incoming().listingId).sellerId != request.auth.uid &&
+        getListing(incoming().listingId).status in ['Active', 'active'] &&
+        (!('remainingQuantity' in getListing(incoming().listingId)) ||
+         incoming().quantity <= getListing(incoming().listingId).remainingQuantity) &&
+        incoming().offeredPrice is number && incoming().offeredPrice >= 0 &&
+        incoming().quantity is int && incoming().quantity >= 1 &&
+        incoming().totalPrice is number && incoming().totalPrice >= 0 &&
+        incoming().totalPrice == incoming().offeredPrice * incoming().quantity &&
+        incoming().status in ['Pending Seller Response', 'Pending'];
 
-    // 5. Rental Booking Requests (/rentalRequests/{rentalRequestId})
-    match /rentalRequests/{rentalRequestId} {
-      allow get: if isVerifiedUtmUser() && (resource.data.renterId == request.auth.uid || resource.data.ownerId == request.auth.uid);
-      allow list: if isVerifiedUtmUser();
-      allow create: if isVerifiedUtmUser() && isValidId(rentalRequestId) &&
-        incoming().keys().hasAll(['rentalItemId', 'renterId', 'renterName', 'ownerId', 'ownerName', 'startDate', 'returnDate', 'status', 'createdAt']) &&
-        incoming().renterId == request.auth.uid &&
-        incoming().status == 'Pending';
-      allow update: if isVerifiedUtmUser() && (
-        existing().ownerId == request.auth.uid || existing().renterId == request.auth.uid
-      ) && incoming().renterId == existing().renterId && incoming().ownerId == existing().ownerId;
-      allow delete: if false;
-    }
+      // Strictly separated Buyer and Seller update permissions
+      allow update: if isVerifiedUtmUser() && 
+        // Immutable transaction anchor fields for both parties
+        incoming().buyerId == existing().buyerId &&
+        incoming().sellerId == existing().sellerId &&
+        incoming().listingId == existing().listingId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().offeredPrice == existing().offeredPrice &&
+        incoming().quantity == existing().quantity &&
+        incoming().totalPrice == existing().totalPrice &&
+        (!('id' in incoming()) || incoming().id == existing().id || incoming().id == tradeId) &&
+        // Terminal state lock: Completed, Rejected, or Cancelled trades cannot change status
+        (!(existing().status in ['Completed', 'Rejected', 'Cancelled']) || incoming().status == existing().status) &&
+        (
+          // BUYER UPDATE PERMISSIONS
+          (
+            existing().buyerId == request.auth.uid &&
+            (
+              // Action 1: Submit payment proof (from active/pending states ONLY, NEVER from Approved or terminal states)
+              (incoming().status == 'Payment Under Review' &&
+               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Proof Rejected'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly([
+                 'status', 'paymentProofUrl', 'paymentProofUploadedAt', 'paymentMethod', 'rejectionReason'
+               ]) &&
+               incoming().paymentProofUrl is string && incoming().paymentProofUrl.size() > 0 && incoming().paymentProofUrl.size() <= 1000 &&
+               incoming().paymentProofUploadedAt is string && incoming().paymentProofUploadedAt.size() <= 50 &&
+               incoming().paymentMethod is string && incoming().paymentMethod.size() <= 100 &&
+               incoming().get('approvedAt', null) == existing().get('approvedAt', null) &&
+               incoming().get('completedAt', null) == existing().get('completedAt', null) &&
+               incoming().get('hasSellerReviewed', false) == existing().get('hasSellerReviewed', false) &&
+               incoming().get('hasBuyerReviewed', false) == existing().get('hasBuyerReviewed', false)) ||
 
-    // 6. Conversations (/conversations/{conversationId})
-    match /conversations/{conversationId} {
-      allow get: if isVerifiedUtmUser() && (resource.data.buyerId == request.auth.uid || resource.data.sellerId == request.auth.uid);
-      allow list: if isVerifiedUtmUser();
-      allow create: if isVerifiedUtmUser() && (incoming().buyerId == request.auth.uid || incoming().sellerId == request.auth.uid);
-      allow update: if isVerifiedUtmUser() && (existing().buyerId == request.auth.uid || existing().sellerId == request.auth.uid);
-      allow delete: if false;
+              // Action 2: Cancel purchase request (only from pending/review states, never from approved/completed/rejected)
+              (incoming().status == 'Cancelled' &&
+               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review', 'Payment Proof Rejected'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+               incoming().get('paymentProofUrl', null) == existing().get('paymentProofUrl', null) &&
+               incoming().get('paymentProofUploadedAt', null) == existing().get('paymentProofUploadedAt', null) &&
+               incoming().get('paymentMethod', null) == existing().get('paymentMethod', null)) ||
 
-      // Messages subcollection
-      match /messages/{messageId} {
-        allow read: if isVerifiedUtmUser() && (
-          get(/databases/$(database)/documents/conversations/$(conversationId)).data.buyerId == request.auth.uid ||
-          get(/databases/$(database)/documents/conversations/$(conversationId)).data.sellerId == request.auth.uid
+              // Action 3: Buyer Review (only when Completed, one-way transition: false -> true only)
+              (existing().status == 'Completed' &&
+               incoming().status == 'Completed' &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['hasBuyerReviewed']) &&
+               existing().get('hasBuyerReviewed', false) == false &&
+               incoming().hasBuyerReviewed == true &&
+               incoming().get('paymentProofUrl', null) == existing().get('paymentProofUrl', null) &&
+               incoming().get('paymentProofUploadedAt', null) == existing().get('paymentProofUploadedAt', null) &&
+               incoming().get('paymentMethod', null) == existing().get('paymentMethod', null))
+            )
+          ) ||
+          // SELLER UPDATE PERMISSIONS
+          (
+            existing().sellerId == request.auth.uid &&
+            // A seller must NOT be able to modify buyer payment proof
+            incoming().get('paymentProofUrl', null) == existing().get('paymentProofUrl', null) &&
+            incoming().get('paymentProofUploadedAt', null) == existing().get('paymentProofUploadedAt', null) &&
+            incoming().get('paymentMethod', null) == existing().get('paymentMethod', null) &&
+            incoming().get('hasBuyerReviewed', false) == existing().get('hasBuyerReviewed', false) &&
+            (
+              // Action 1: Approve transaction (from pending or review states)
+              (incoming().status == 'Approved' &&
+               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'approvedAt']) &&
+               incoming().approvedAt is string && incoming().approvedAt.size() <= 50 &&
+               incoming().get('completedAt', null) == existing().get('completedAt', null)) ||
+
+              // Action 2: Reject transaction (from pending or review states)
+              (incoming().status == 'Rejected' &&
+               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'rejectionReason']) &&
+               (!('rejectionReason' in incoming()) || (incoming().rejectionReason is string && incoming().rejectionReason.size() <= 500))) ||
+
+              // Action 3: Reject payment proof (only from review state)
+              (incoming().status == 'Payment Proof Rejected' &&
+               existing().status == 'Payment Under Review' &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'rejectionReason']) &&
+               incoming().rejectionReason is string && incoming().rejectionReason.size() > 0 && incoming().rejectionReason.size() <= 500) ||
+
+              // Action 4: Complete transaction (strictly from Approved state)
+              (incoming().status == 'Completed' &&
+               existing().status == 'Approved' &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedAt']) &&
+               incoming().completedAt is string && incoming().completedAt.size() <= 50 &&
+               incoming().approvedAt == existing().approvedAt) ||
+
+              // Action 5: Seller Review (only when Completed, one-way transition: false -> true only)
+              (existing().status == 'Completed' &&
+               incoming().status == 'Completed' &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['hasSellerReviewed']) &&
+               existing().get('hasSellerReviewed', false) == false &&
+               incoming().hasSellerReviewed == true)
+            )
+          )
         );
-        allow create: if isVerifiedUtmUser() &&
+
+      // Financial transactions cannot be deleted to maintain an audit trail
+      allow delete: if false;
+    }
+
+    // ===============================================================
+    // 5. RENTAL BOOKING REQUESTS (/rentalRequests/{rentalRequestId})
+    // ===============================================================
+    match /rentalRequests/{rentalRequestId} {
+      // Only the relevant renter or equipment owner can view the private booking
+      allow get: if isVerifiedUtmUser() && (
+        resource.data.renterId == request.auth.uid || 
+        resource.data.ownerId == request.auth.uid
+      );
+      // Queries must be filtered by renterId or ownerId
+      allow list: if isVerifiedUtmUser() && (
+        resource.data.renterId == request.auth.uid || 
+        resource.data.ownerId == request.auth.uid
+      );
+
+      // Only the renter can initiate a booking with their own UID.
+      // Cross-document validation: Verifies rental exists, belongs to owner, is available, dates are valid ISO format, and prevents self-renting.
+      allow create: if isVerifiedUtmUser() && 
+        isValidId(rentalRequestId) &&
+        incoming().keys().hasAll([
+          'rentalItemId', 'rentalItemName', 'ownerId', 'ownerName', 'renterId', 'renterName', 
+          'startDate', 'returnDate', 'days', 'pricePerDay', 'rentalFeeTotal', 'securityDeposit', 
+          'totalBeforeRental', 'pickupLocation', 'status', 'depositStatus', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'id', 'rentalItemId', 'rentalItemName', 'rentalItemImage', 'ownerId', 'ownerName',
+          'ownerContact', 'renterId', 'renterName', 'renterContact', 'startDate', 'returnDate',
+          'days', 'pricePerDay', 'rentalFeeTotal', 'securityDeposit', 'totalBeforeRental',
+          'pickupLocation', 'message', 'status', 'depositStatus', 'isSimulatedPayment',
+          'isSentByCurrentUser', 'createdAt', 'updatedAt'
+        ]) &&
+        incoming().renterId == request.auth.uid &&
+        incoming().ownerId != request.auth.uid &&
+        rentalExists(incoming().rentalItemId) &&
+        getRental(incoming().rentalItemId).ownerId == incoming().ownerId &&
+        getRental(incoming().rentalItemId).ownerId != request.auth.uid &&
+        getRental(incoming().rentalItemId).isAvailable == true &&
+        incoming().pricePerDay == getRental(incoming().rentalItemId).pricePerDay &&
+        incoming().securityDeposit == getRental(incoming().rentalItemId).securityDeposit &&
+        incoming().days is int && incoming().days >= 1 &&
+        incoming().rentalFeeTotal == incoming().pricePerDay * incoming().days &&
+        incoming().totalBeforeRental == incoming().rentalFeeTotal + incoming().securityDeposit &&
+        incoming().startDate is string && incoming().returnDate is string &&
+        incoming().startDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') &&
+        incoming().returnDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') &&
+        incoming().startDate <= incoming().returnDate &&
+        incoming().status in ['Pending', 'Pending Approval'] &&
+        incoming().depositStatus in ['Pending', 'Paid', 'Not Paid'];
+
+      // Strictly separated Renter and Owner update permissions
+      allow update: if isVerifiedUtmUser() && 
+        // Immutable booking anchor fields: dates, prices, deposits, and participants
+        incoming().renterId == existing().renterId &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().rentalItemId == existing().rentalItemId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().startDate == existing().startDate &&
+        incoming().returnDate == existing().returnDate &&
+        incoming().days == existing().days &&
+        incoming().pricePerDay == existing().pricePerDay &&
+        incoming().rentalFeeTotal == existing().rentalFeeTotal &&
+        incoming().securityDeposit == existing().securityDeposit &&
+        incoming().totalBeforeRental == existing().totalBeforeRental &&
+        (!('id' in incoming()) || incoming().id == existing().id || incoming().id == rentalRequestId) &&
+        // Terminal state lock: Completed, Rejected, or Cancelled rental requests cannot change status
+        (!(existing().status in ['Completed', 'Rejected', 'Cancelled']) || incoming().status == existing().status) &&
+        (
+          // RENTER UPDATE PERMISSIONS
+          (
+            existing().renterId == request.auth.uid &&
+            // Protect all owner-controlled inspection, refund, and condition fields
+            incoming().get('inspectionPassed', null) == existing().get('inspectionPassed', null) &&
+            incoming().get('refundAmount', null) == existing().get('refundAmount', null) &&
+            incoming().get('refundDate', null) == existing().get('refundDate', null) &&
+            incoming().get('depositStatus', null) == existing().get('depositStatus', null) &&
+            incoming().get('proposedDeduction', null) == existing().get('proposedDeduction', null) &&
+            incoming().get('deductionReason', null) == existing().get('deductionReason', null) &&
+            incoming().get('handoverConfirmedAt', null) == existing().get('handoverConfirmedAt', null) &&
+            incoming().get('handoverConditionNotes', null) == existing().get('handoverConditionNotes', null) &&
+            incoming().get('returnConditionNotes', null) == existing().get('returnConditionNotes', null) &&
+            incoming().get('disputeNotes', null) == existing().get('disputeNotes', null) &&
+            (
+              // Action 1: Cancel booking request (only when still pending owner response)
+              (incoming().status == 'Cancelled' &&
+               existing().status in ['Pending', 'Pending Approval'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+
+              // Action 2: Report equipment returned (only from active rental)
+              (incoming().status == 'Inspection Pending' &&
+               existing().status in ['Rented Out', 'Return Pending'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'returnReportedAt']) &&
+               incoming().returnReportedAt is string && incoming().returnReportedAt.size() <= 50) ||
+
+              // Action 3: Submit renter dispute response (only during Dispute state, status remains unchanged)
+              (existing().status == 'Dispute' &&
+               incoming().status == 'Dispute' &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['updatedAt', 'renterDisputeResponse']) &&
+               incoming().renterDisputeResponse is string && incoming().renterDisputeResponse.size() <= 1000)
+            )
+          ) ||
+          // OWNER UPDATE PERMISSIONS
+          (
+            existing().ownerId == request.auth.uid &&
+            // Protect renter-controlled fields
+            incoming().get('renterDisputeResponse', null) == existing().get('renterDisputeResponse', null) &&
+            incoming().get('returnReportedAt', null) == existing().get('returnReportedAt', null) &&
+            (
+              // Action 1: Approve booking (only from Pending / Pending Approval)
+              (incoming().status in ['Approved', 'Ready for Handover'] &&
+               existing().status in ['Pending', 'Pending Approval'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+
+              // Action 2: Reject booking (only from Pending / Pending Approval)
+              (incoming().status == 'Rejected' &&
+               existing().status in ['Pending', 'Pending Approval'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+
+              // Action 3: Handover item to renter (only from Approved/Ready)
+              (incoming().status == 'Rented Out' &&
+               existing().status in ['Approved', 'Ready for Handover'] &&
+               incoming().depositStatus == 'Paid' &&
+               incoming().diff(existing()).affectedKeys().hasOnly([
+                 'status', 'depositStatus', 'updatedAt', 'handoverConditionNotes', 'handoverConfirmedAt'
+               ]) &&
+               incoming().handoverConfirmedAt is string && incoming().handoverConfirmedAt.size() <= 50) ||
+
+              // Action 4: Return inspection passed (to Refund Pending)
+              (incoming().status == 'Refund Pending' &&
+               existing().status == 'Inspection Pending' &&
+               incoming().inspectionPassed == true &&
+               incoming().get('proposedDeduction', 0) == 0 &&
+               incoming().diff(existing()).affectedKeys().hasOnly([
+                 'status', 'depositStatus', 'updatedAt', 'inspectionPassed', 'returnConditionNotes', 'proposedDeduction'
+               ])) ||
+
+              // Action 5: Return inspection reported damage/missing items (to Dispute)
+              (incoming().status == 'Dispute' &&
+               existing().status == 'Inspection Pending' &&
+               incoming().inspectionPassed == false &&
+               incoming().depositStatus == 'Dispute' &&
+               incoming().proposedDeduction is number && incoming().proposedDeduction >= 0 &&
+               incoming().diff(existing()).affectedKeys().hasOnly([
+                 'status', 'depositStatus', 'updatedAt', 'inspectionPassed', 'returnConditionNotes', 'proposedDeduction', 'deductionReason', 'disputeNotes'
+               ])) ||
+
+              // Action 6: Resolve Dispute with agreed refund amount (to Refund Pending)
+              (incoming().status == 'Refund Pending' &&
+               existing().status == 'Dispute' &&
+               incoming().depositStatus == 'Refund Pending' &&
+               incoming().refundAmount is number && incoming().refundAmount >= 0 && incoming().refundAmount <= existing().securityDeposit &&
+               incoming().diff(existing()).affectedKeys().hasOnly([
+                 'status', 'depositStatus', 'updatedAt', 'refundAmount', 'disputeNotes'
+               ])) ||
+
+              // Action 7: Complete booking and finalize deposit refund (strictly from Refund Pending)
+              (incoming().status == 'Completed' &&
+               existing().status == 'Refund Pending' &&
+               incoming().depositStatus == 'Refunded' &&
+               incoming().refundAmount is number && incoming().refundAmount >= 0 && incoming().refundAmount <= existing().securityDeposit &&
+               incoming().refundDate is string && incoming().refundDate.size() <= 50 &&
+               incoming().diff(existing()).affectedKeys().hasOnly([
+                 'status', 'depositStatus', 'updatedAt', 'refundAmount', 'refundDate'
+               ])) ||
+
+              // Action 8: Status unchanged (e.g. updating dispute notes during Dispute only)
+              (incoming().status == existing().status &&
+               (incoming().diff(existing()).affectedKeys().hasOnly(['updatedAt']) ||
+                (existing().status == 'Dispute' && incoming().diff(existing()).affectedKeys().hasOnly(['updatedAt', 'disputeNotes']))))
+            )
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // ===============================================================
+    // 6. DIRECT CONVERSATIONS & MESSAGES
+    // ===============================================================
+    match /conversations/{conversationId} {
+      // Only the two actual conversation participants can view conversation headers
+      allow get: if isVerifiedUtmUser() && (
+        resource.data.buyerId == request.auth.uid || 
+        resource.data.sellerId == request.auth.uid ||
+        (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
+      );
+      allow list: if isVerifiedUtmUser() && (
+        resource.data.buyerId == request.auth.uid || 
+        resource.data.sellerId == request.auth.uid ||
+        (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
+      );
+
+      // Only conversation participants can create the thread, cannot chat with oneself
+      // Strict keys().hasOnly([...]) prevents injecting unauthorized fields
+      allow create: if isVerifiedUtmUser() && 
+        isValidId(conversationId) &&
+        isValidId(incoming().buyerId) &&
+        isValidId(incoming().sellerId) &&
+        (incoming().buyerId == request.auth.uid || incoming().sellerId == request.auth.uid) &&
+        incoming().buyerId != incoming().sellerId &&
+        incoming().keys().hasOnly([
+          'id', 'type', 'name', 'avatar', 'participants', 'participantIds',
+          'buyerId', 'buyerName', 'sellerId', 'sellerName', 'listingId', 'listingTitle',
+          'lastMessage', 'lastMessageTime', 'unreadCount', 'isBlocked', 'messages', 'updatedAt'
+        ]) &&
+        (!('participantIds' in incoming()) || 
+         (incoming().participantIds is list && 
+          incoming().participantIds.size() == 2 &&
+          incoming().participantIds.hasAll([incoming().buyerId, incoming().sellerId]))) &&
+        (!('messages' in incoming()) || (incoming().messages is list && incoming().messages.size() <= 1));
+
+      // Thread updates: buyerId, sellerId, and participantIds are IMMUTABLE.
+      // Unauthorised users are prevented from joining existing conversations.
+      allow update: if isVerifiedUtmUser() && (
+        existing().buyerId == request.auth.uid || 
+        existing().sellerId == request.auth.uid ||
+        (existing().participantIds is list && request.auth.uid in existing().participantIds)
+      ) && 
+        incoming().buyerId == existing().buyerId &&
+        incoming().sellerId == existing().sellerId &&
+        incoming().get('participantIds', null) == existing().get('participantIds', null) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'lastMessage', 'lastMessageTime', 'updatedAt', 'unreadCount', 'messages'
+        ]);
+
+      allow delete: if false;
+
+      // Messages Subcollection (/conversations/{conversationId}/messages/{messageId})
+      match /messages/{messageId} {
+        // Only verified participants of the parent conversation can read messages
+        allow get, list: if isVerifiedUtmUser() && (
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.buyerId == request.auth.uid ||
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.sellerId == request.auth.uid ||
+          (get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds is list &&
+           request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds)
+        );
+
+        // Only an authorised participant of the parent conversation can send messages.
+        // A user cannot send messages into another user's conversation.
+        allow create: if isVerifiedUtmUser() && 
+          isValidId(messageId) &&
+          (
+            get(/databases/$(database)/documents/conversations/$(conversationId)).data.buyerId == request.auth.uid ||
+            get(/databases/$(database)/documents/conversations/$(conversationId)).data.sellerId == request.auth.uid ||
+            (get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds is list &&
+             request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds)
+          ) &&
+          incoming().keys().hasOnly([
+            'id', 'conversationId', 'senderId', 'senderName', 'senderAvatar',
+            'text', 'timestamp', 'sharedListing', 'isRead'
+          ]) &&
           incoming().senderId == request.auth.uid &&
-          incoming().text is string && incoming().text.size() > 0 && incoming().text.size() <= 1000;
+          incoming().text is string && 
+          incoming().text.size() > 0 && 
+          incoming().text.size() <= 1000;
+
+        // Messages are immutable audit logs
         allow update, delete: if false;
       }
+    }
+
+    // ===============================================================
+    // 7. TRUSTED STAFF ADMINISTRATIVE WHITELIST (/staff_whitelist/{userId})
+    // ===============================================================
+    match /staff_whitelist/{userId} {
+      // Whitelist cannot be read or written from client SDKs; managed via Admin SDK/Console only
+      allow read, write: if false;
     }
   }
 }
