@@ -422,24 +422,39 @@ export default function App() {
   const handleCreateListing = async (newListingData: any) => {
     if (!ensureVerifiedUtmUser('publish a product listing')) return;
 
-    const sellerId = currentUser?.id || `utm-${Date.now()}`;
     const sellerName = currentUser?.name || userProfile.name || 'UTM Student';
     const sellerContact = currentUser?.email || userProfile.email || '';
     const sellerFaculty = currentUser?.faculty || userProfile.faculty || '';
     const sellerAvatar = currentUser?.avatarUrl || userProfile.avatarUrl;
 
-    const created = await storageService.createListing({
-      ...newListingData,
-      sellerId,
-      sellerName,
-      sellerContact,
-      sellerFaculty,
-      sellerAvatar,
-    });
-    setListings((prev) => [created, ...prev.filter((l) => l.id !== created.id)]);
-    setIsCreateModalOpen(false);
-    setEditingListing(null);
-    addToast('success', 'Listing Published to Shared Marketplace!', `"${created.title}" (${created.remainingQuantity || 1} units) is now visible to all students.`);
+    try {
+      const created = await storageService.createListing({
+        ...newListingData,
+        sellerName,
+        sellerContact,
+        sellerFaculty,
+        ...(sellerAvatar ? { sellerAvatar } : {}),
+      });
+      setListings((prev) => [created, ...prev.filter((l) => l.id !== created.id)]);
+      setIsCreateModalOpen(false);
+      setEditingListing(null);
+      addToast('success', 'Listing Published to Shared Marketplace!', `"${created.title}" (${created.remainingQuantity || 1} units) is now visible to all students in Firestore.`);
+    } catch (err: any) {
+      console.error('Failed to publish listing to Firestore:', err);
+      let errorMsg = 'Failed to publish listing to Firestore.';
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) {
+            errorMsg = parsed.error;
+          }
+        } catch {
+          errorMsg = err.message;
+        }
+      }
+      addToast('error', 'Firestore Upload Failed', errorMsg);
+      throw err;
+    }
   };
 
   const handleEditListing = (listing: Listing) => {

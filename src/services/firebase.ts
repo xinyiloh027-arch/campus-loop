@@ -54,15 +54,16 @@ let firestoreDb: Firestore | null = null;
 
 // Determine active Firebase configuration with environment variable support
 export function getFirebaseConfig(): FirebaseConfig {
+  const env = typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;
   return {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || DEFAULT_FIREBASE_CONFIG.apiKey,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || DEFAULT_FIREBASE_CONFIG.authDomain,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_CONFIG.projectId,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || DEFAULT_FIREBASE_CONFIG.storageBucket,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || DEFAULT_FIREBASE_CONFIG.appId,
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || DEFAULT_FIREBASE_CONFIG.measurementId,
-    firestoreDatabaseId: import.meta.env.VITE_FIRESTORE_DATABASE_ID || DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId || '(default)'
+    apiKey: env?.VITE_FIREBASE_API_KEY || DEFAULT_FIREBASE_CONFIG.apiKey,
+    authDomain: env?.VITE_FIREBASE_AUTH_DOMAIN || DEFAULT_FIREBASE_CONFIG.authDomain,
+    projectId: env?.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_CONFIG.projectId,
+    storageBucket: env?.VITE_FIREBASE_STORAGE_BUCKET || DEFAULT_FIREBASE_CONFIG.storageBucket,
+    messagingSenderId: env?.VITE_FIREBASE_MESSAGING_SENDER_ID || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
+    appId: env?.VITE_FIREBASE_APP_ID || DEFAULT_FIREBASE_CONFIG.appId,
+    measurementId: env?.VITE_FIREBASE_MEASUREMENT_ID || DEFAULT_FIREBASE_CONFIG.measurementId,
+    firestoreDatabaseId: env?.VITE_FIRESTORE_DATABASE_ID || DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId || '(default)'
   };
 }
 
@@ -93,7 +94,11 @@ export function initFirebase(): { app: FirebaseApp | null; auth: Auth | null; db
       firebaseAuth = getAuth(firebaseApp);
     }
     if (firebaseApp && !firestoreDb) {
-      firestoreDb = getFirestore(firebaseApp, config.firestoreDatabaseId || '(default)');
+      if (config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)') {
+        firestoreDb = getFirestore(firebaseApp, config.firestoreDatabaseId);
+      } else {
+        firestoreDb = getFirestore(firebaseApp);
+      }
     }
   } catch (err) {
     console.warn('CampusLoop Firebase initialization notice (running with resilient fallback):', err);

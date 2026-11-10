@@ -38,7 +38,9 @@ import {
   where, 
   orderBy, 
   onSnapshot,
-  runTransaction
+  runTransaction,
+  handleFirestoreError,
+  OperationType
 } from './firebase';
 
 const LISTINGS_KEY = 'campusloop_real_listings_v1';
@@ -148,17 +150,39 @@ export const storageService = {
       : rawQty;
 
     const { auth, db } = initFirebase();
-    const activeSellerId = auth?.currentUser?.uid || listingData.sellerId || 'uid';
 
-    // Generate authoritative Firestore document ID upfront
-    const listingsCol = db ? collection(db, 'listings') : null;
-    const docRef = listingsCol ? doc(listingsCol) : null;
-    const finalId = docRef ? docRef.id : `list-${Date.now()}`;
+    // 1. Explicit check: verify Firestore database connectivity
+    if (!db) {
+      const err = new Error('Firestore database is not initialized. Please verify your Firebase configuration.');
+      console.error(err.message);
+      throw err;
+    }
 
+    // 2. Explicit check: verify Firebase Authentication state
+    const currentUser = auth?.currentUser;
+    if (!currentUser) {
+      const errMsg = 'Unauthenticated Firestore upload: You must be actively signed into Firebase Authentication to publish listings to the shared Firestore database. Your current session is using local offline credentials.';
+      console.error(errMsg);
+      throw new Error(errMsg);
+    }
+
+    // 3. Explicit check: verify Email Verification status for security rules
+    if (!currentUser.emailVerified) {
+      const errMsg = `Unverified UTM Email: Your email address (${currentUser.email || ''}) is not yet marked verified in Firebase Authentication. Security rules require request.auth.token.email_verified == true. Please check your inbox and verify your email.`;
+      console.error(errMsg);
+      throw new Error(errMsg);
+    }
+
+    // 4. Generate authoritative Firestore document reference
+    const listingsCol = collection(db, 'listings');
+    const docRef = doc(listingsCol);
+    const finalId = docRef.id;
+
+    // Strict identity enforcement: sellerId must match Firebase Auth UID
     const newListing: Listing = {
       ...listingData,
       id: finalId,
-      sellerId: activeSellerId,
+      sellerId: currentUser.uid,
       createdAt: new Date().toISOString(),
       originalQuantity: rawQty,
       remainingQuantity: remainingQty,
@@ -166,19 +190,26 @@ export const storageService = {
       isUserCreated: true,
     };
 
-    // 1. Firebase Firestore sync (only if authenticated)
-    if (db && docRef && auth?.currentUser) {
-      try {
-        await auth.currentUser.getIdToken(true);
-        await setDoc(docRef, newListing);
-        console.info('Listing successfully persisted to Firestore with ID:', finalId);
-      } catch (err) {
-        console.error('Firestore listing write error:', err);
-        throw err;
+    // 5. Sanitize Firestore document payload (strip undefined keys to avoid SDK crashes and rule rejections)
+    const firestorePayload: Record<string, any> = {};
+    for (const [key, value] of Object.entries(newListing)) {
+      if (value !== undefined && value !== null) {
+        firestorePayload[key] = value;
       }
     }
 
-    // 2. Local state update
+    // 6. Write to Firestore with ID token refresh & strict error handling
+    try {
+      await currentUser.getIdToken(true);
+      await setDoc(docRef, firestorePayload);
+      console.info('Listing successfully persisted to Firestore with ID:', finalId);
+    } catch (err: any) {
+      console.error('Firestore listing write error:', err);
+      handleFirestoreError(err, OperationType.CREATE, `listings/${finalId}`);
+      throw err;
+    }
+
+    // 7. Update local cache after confirmed Firestore write
     const current = this.getListings();
     const updated = [newListing, ...current.filter((item) => item.id !== finalId)];
     try {

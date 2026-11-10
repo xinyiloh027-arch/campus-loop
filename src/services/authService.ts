@@ -303,7 +303,9 @@ class AuthService {
       } catch (fbErr: any) {
         console.error('Firebase registration error:', fbErr);
         let errorMsg = 'Registration failed. Please check your details and try again.';
-        if (fbErr.code === 'auth/email-already-in-use') {
+        if (fbErr.code === 'auth/operation-not-allowed') {
+          errorMsg = 'Email/Password sign-in provider is disabled in Firebase Console. Please ensure Email/Password is enabled under Authentication > Sign-in method in project campusloop-e43e1.';
+        } else if (fbErr.code === 'auth/email-already-in-use') {
           errorMsg = 'An account with this UTM email already exists. Please sign in or reset your password.';
         } else if (fbErr.code === 'auth/invalid-email') {
           errorMsg = 'Invalid email address format. Please enter a valid UTM email.';
@@ -611,13 +613,25 @@ class AuthService {
           message: `Welcome back, ${safeUser.name}! Signed in as Verified UTM Member.`
         };
       } catch (fbErr: any) {
+        if (fbErr.code === 'auth/operation-not-allowed') {
+          return {
+            success: false,
+            message: 'Email/Password sign-in provider is disabled in Firebase Console. Please ensure Email/Password is enabled under Authentication > Sign-in method in project campusloop-e43e1.'
+          };
+        }
         if (fbErr.code === 'auth/wrong-password' || fbErr.code === 'auth/invalid-credential') {
           return { success: false, message: 'Incorrect password. Please verify your credentials or click "Forgot Password".' };
         }
         if (fbErr.code === 'auth/user-not-found') {
-          return { success: false, message: 'No CampusLoop account found with this UTM email. Please click "Create Account" to register.' };
+          return { success: false, message: 'No CampusLoop account found with this UTM email in Firebase Authentication. Please click "Create Account" to register.' };
         }
-        // Fallback to local DB check if user registered in local store
+        if (fbErr.code === 'auth/network-request-failed') {
+          return { success: false, message: 'Network connection error connecting to Firebase Authentication. Please check your connection.' };
+        }
+        if (fbErr.code === 'auth/too-many-requests') {
+          return { success: false, message: 'Access to this account has been temporarily disabled due to many failed login attempts. Please wait or reset password.' };
+        }
+        return { success: false, message: fbErr.message || 'Firebase Authentication failed.' };
       }
     }
 

@@ -20,9 +20,9 @@ import { imageStorageService } from '../services/imageStorageService';
 interface CreateListingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onListingCreated: (newListing: any) => void;
+  onListingCreated: (newListing: any) => Promise<void> | void;
   initialListing?: Listing | null;
-  onListingUpdated?: (updatedListing: Listing) => void;
+  onListingUpdated?: (updatedListing: Listing) => Promise<void> | void;
 }
 
 const PRESET_IMAGES = [
@@ -197,7 +197,7 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
 
@@ -225,11 +225,13 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
         status: numQty === 0 ? 'Sold' : 'Active',
       };
 
-      setTimeout(() => {
-        onListingUpdated(updatedListing);
+      try {
+        await onListingUpdated(updatedListing);
         setIsSubmitting(false);
         onClose();
-      }, 250);
+      } catch (err) {
+        setIsSubmitting(false);
+      }
       return;
     }
 
@@ -254,11 +256,14 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
       createdAt: new Date().toISOString(),
     };
 
-    setTimeout(() => {
-      onListingCreated(newListingData);
+    try {
+      await onListingCreated(newListingData);
       setIsSubmitting(false);
       onClose();
-    }, 250);
+    } catch (err) {
+      // Keep modal open so the student does not lose entered data
+      setIsSubmitting(false);
+    }
   };
 
   return (
