@@ -21,6 +21,7 @@ interface NotificationDrawerProps {
   onMarkAllAsRead: () => void;
   onClearAll: () => void;
   onNavigateTab?: (tab: any) => void;
+  onSelectNotification?: (notification: CampusNotification) => void;
 }
 
 export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
@@ -31,6 +32,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   onMarkAllAsRead,
   onClearAll,
   onNavigateTab,
+  onSelectNotification,
 }) => {
   if (!isOpen) return null;
 
@@ -42,6 +44,8 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
 
   const getIcon = (type: NotificationType) => {
     switch (type) {
+      case 'purchase_request':
+      case 'purchase_request_sent':
       case 'trade':
       case 'trade_request':
         return <ShoppingBag className="w-4 h-4 text-sky-600" />;
@@ -57,6 +61,36 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         return <Sparkles className="w-4 h-4 text-emerald-600" />;
       default:
         return <Bell className="w-4 h-4 text-indigo-600" />;
+    }
+  };
+
+  const formatTimeDisplay = (n: CampusNotification) => {
+    if (n.timestamp && n.timestamp !== n.createdAt) {
+      return n.timestamp;
+    }
+    const raw = n.createdAt || n.timestamp;
+    if (!raw) return 'Recent';
+    const parsed = Date.parse(raw);
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed).toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+    return raw;
+  };
+
+  const handleNotificationClick = (n: CampusNotification) => {
+    if (onSelectNotification) {
+      onSelectNotification(n);
+      return;
+    }
+    onMarkAsRead(n.id);
+    if (n.linkTab && onNavigateTab) {
+      onNavigateTab(n.linkTab);
+      onClose();
     }
   };
 
@@ -120,12 +154,12 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           ) : (
             notifications.map((n) => {
               const isRead = isNotificationRead(n);
-              const timeDisplay = n.createdAt || n.timestamp || 'Recent';
+              const timeDisplay = formatTimeDisplay(n);
 
               return (
                 <div
                   key={n.id}
-                  onClick={() => onMarkAsRead(n.id)}
+                  onClick={() => handleNotificationClick(n)}
                   className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
                     isRead 
                       ? 'bg-white border-slate-100 hover:bg-slate-50/80' 
@@ -145,14 +179,12 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                         {n.message}
                       </p>
 
-                      {n.linkTab && onNavigateTab && (
+                      {(n.linkTab || n.relatedRequestId || onSelectNotification) && (
                         <div className="pt-1.5 flex justify-end">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              onMarkAsRead(n.id);
-                              onNavigateTab(n.linkTab);
-                              onClose();
+                              handleNotificationClick(n);
                             }}
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800"
                           >

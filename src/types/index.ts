@@ -576,6 +576,8 @@ export interface BudgetSettings {
 }
 
 export type NotificationType = 
+  | 'purchase_request'
+  | 'purchase_request_sent'
   | 'trade' 
   | 'borrow' 
   | 'wanted' 
@@ -597,6 +599,10 @@ export type NotificationType =
 
 export interface CampusNotification {
   id: string;
+  recipientId?: string;
+  senderId?: string;
+  buyerId?: string;
+  sellerId?: string;
   title: string;
   message: string;
   type: NotificationType;
@@ -605,6 +611,9 @@ export interface CampusNotification {
   timestamp?: string;
   createdAt?: string;
   linkTab?: string;
+  subTab?: string;
+  relatedRequestId?: string;
+  relatedListingId?: string;
   relatedRentalId?: string;
 }
 

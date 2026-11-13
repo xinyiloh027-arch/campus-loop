@@ -21,6 +21,7 @@ interface SellerReviewModalProps {
   onClose: () => void;
   request: TradeRequest | null;
   listing?: Listing | null;
+  currentUserId?: string;
   onApprove: (requestId: string) => Promise<void>;
   onReject: (requestId: string, reason: string) => Promise<void>;
 }
@@ -38,6 +39,7 @@ export const SellerReviewModal: React.FC<SellerReviewModalProps> = ({
   onClose,
   request,
   listing,
+  currentUserId,
   onApprove,
   onReject,
 }) => {
@@ -58,8 +60,14 @@ export const SellerReviewModal: React.FC<SellerReviewModalProps> = ({
   const totalAmount = request.totalPrice || (request.offeredPrice * requestedQty);
   const stockAfterApproval = currentRemaining - requestedQty;
   const isOutOfStock = stockAfterApproval < 0;
+  const isSellerOwner = !currentUserId || !request.sellerId || request.sellerId === currentUserId;
 
   const handleApproveConfirm = async () => {
+    if (!isSellerOwner) {
+      setErrorMessage('Unauthorized: Only the seller who owns this listing can approve this request.');
+      return;
+    }
+
     if (isOutOfStock) {
       setErrorMessage(`Cannot approve: Requested ${requestedQty} unit(s) exceeds available stock (${currentRemaining}).`);
       return;
@@ -79,6 +87,11 @@ export const SellerReviewModal: React.FC<SellerReviewModalProps> = ({
   };
 
   const handleRejectConfirm = async () => {
+    if (!isSellerOwner) {
+      setErrorMessage('Unauthorized: Only the seller who owns this listing can reject this request.');
+      return;
+    }
+
     const finalReason = selectedReason === 'Other reason'
       ? customReason.trim() || 'Payment proof was not accepted.'
       : selectedReason;
@@ -242,26 +255,32 @@ export const SellerReviewModal: React.FC<SellerReviewModalProps> = ({
             </div>
 
             {/* Actions Footer */}
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2.5">
-              <button
-                type="button"
-                onClick={() => setMode('reject_input')}
-                className="px-4 py-2.5 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-700 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <XCircle className="w-4 h-4 text-rose-600" />
-                <span>Reject Proof</span>
-              </button>
+            {isSellerOwner ? (
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setMode('reject_input')}
+                  className="px-4 py-2.5 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-700 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <XCircle className="w-4 h-4 text-rose-600" />
+                  <span>Reject Proof</span>
+                </button>
 
-              <button
-                type="button"
-                disabled={isOutOfStock}
-                onClick={() => setMode('confirm_approve')}
-                className="flex-1 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Approve Transaction</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  disabled={isOutOfStock}
+                  onClick={() => setMode('confirm_approve')}
+                  className="flex-1 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Approve Transaction</span>
+                </button>
+              </div>
+            ) : (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-semibold text-center">
+                Only the listing owner can approve or reject this purchase request.
+              </div>
+            )}
           </div>
         )}
 

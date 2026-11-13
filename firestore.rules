@@ -293,13 +293,15 @@ service cloud.firestore {
         getListing(incoming().listingId).sellerId == incoming().sellerId &&
         getListing(incoming().listingId).sellerId != request.auth.uid &&
         getListing(incoming().listingId).status in ['Active', 'active'] &&
-        (!('remainingQuantity' in getListing(incoming().listingId)) ||
-         incoming().quantity <= getListing(incoming().listingId).remainingQuantity) &&
+        'remainingQuantity' in getListing(incoming().listingId) &&
+        getListing(incoming().listingId).remainingQuantity is int &&
+        incoming().quantity <= getListing(incoming().listingId).remainingQuantity &&
         incoming().offeredPrice is number && incoming().offeredPrice >= 0 &&
         incoming().quantity is int && incoming().quantity >= 1 &&
         incoming().totalPrice is number && incoming().totalPrice >= 0 &&
         incoming().totalPrice == incoming().offeredPrice * incoming().quantity &&
-        incoming().status in ['Pending Seller Response', 'Pending'];
+        incoming().status in ['Pending Seller Response', 'Pending'] &&
+        (incoming().createdAt == request.time || (incoming().createdAt is string && incoming().createdAt.size() <= 50));
 
       // Strictly separated Buyer and Seller update permissions
       allow update: if isVerifiedUtmUser() && 
@@ -361,12 +363,24 @@ service cloud.firestore {
             incoming().get('paymentMethod', null) == existing().get('paymentMethod', null) &&
             incoming().get('hasBuyerReviewed', false) == existing().get('hasBuyerReviewed', false) &&
             (
-              // Action 1: Approve transaction (from pending or review states)
+              // Action 1: Approve transaction (from pending or review states, atomically decrementing listing stock)
               (incoming().status == 'Approved' &&
                existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'] &&
                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'approvedAt']) &&
                incoming().approvedAt is string && incoming().approvedAt.size() <= 50 &&
-               incoming().get('completedAt', null) == existing().get('completedAt', null)) ||
+               incoming().get('completedAt', null) == existing().get('completedAt', null) &&
+               listingExists(existing().listingId) &&
+               getListing(existing().listingId).sellerId == request.auth.uid &&
+               getListing(existing().listingId).status in ['Active', 'active'] &&
+               getListing(existing().listingId).remainingQuantity is int &&
+               getListing(existing().listingId).remainingQuantity >= existing().quantity &&
+               getAfter(/databases/$(database)/documents/listings/$(existing().listingId)).data.remainingQuantity == getListing(existing().listingId).remainingQuantity - existing().quantity &&
+               (
+                 (getListing(existing().listingId).remainingQuantity - existing().quantity == 0 &&
+                  getAfter(/databases/$(database)/documents/listings/$(existing().listingId)).data.status == 'Sold') ||
+                 (getListing(existing().listingId).remainingQuantity - existing().quantity > 0 &&
+                  getAfter(/databases/$(database)/documents/listings/$(existing().listingId)).data.status in ['Active', 'active'])
+               )) ||
 
               // Action 2: Reject transaction (from pending or review states)
               (incoming().status == 'Rejected' &&
@@ -508,10 +522,14 @@ service cloud.firestore {
             incoming().get('renterDisputeResponse', null) == existing().get('renterDisputeResponse', null) &&
             incoming().get('returnReportedAt', null) == existing().get('returnReportedAt', null) &&
             (
-              // Action 1: Approve booking (only from Pending / Pending Approval)
+              // Action 1: Approve booking (only from Pending / Pending Approval, atomically marking rental unavailable)
               (incoming().status in ['Approved', 'Ready for Handover'] &&
                existing().status in ['Pending', 'Pending Approval'] &&
-               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+               rentalExists(existing().rentalItemId) &&
+               getRental(existing().rentalItemId).ownerId == request.auth.uid &&
+               getRental(existing().rentalItemId).isAvailable == true &&
+               getAfter(/databases/$(database)/documents/rentals/$(existing().rentalItemId)).data.isAvailable == false) ||
 
               // Action 2: Reject booking (only from Pending / Pending Approval)
               (incoming().status == 'Rejected' &&
@@ -603,16 +621,16 @@ service cloud.firestore {
         incoming().keys().hasOnly([
           'id', 'type', 'name', 'avatar', 'participants', 'participantIds',
           'buyerId', 'buyerName', 'sellerId', 'sellerName', 'listingId', 'listingTitle',
-          'lastMessage', 'lastMessageTime', 'unreadCount', 'isBlocked', 'messages', 'updatedAt'
+          'lastMessage', 'lastMessageTime', 'unreadCount', 'isBlocked', 'messages', 'createdAt', 'updatedAt'
         ]) &&
         (!('participantIds' in incoming()) || 
          (incoming().participantIds is list && 
           incoming().participantIds.size() == 2 &&
           incoming().participantIds.hasAll([incoming().buyerId, incoming().sellerId]))) &&
-        (!('messages' in incoming()) || (incoming().messages is list && incoming().messages.size() <= 1));
+        (!('messages' in incoming()) || (incoming().messages is list && incoming().messages.size() == 0));
 
       // Thread updates: buyerId, sellerId, and participantIds are IMMUTABLE.
-      // Unauthorised users are prevented from joining existing conversations.
+      // Messages are strictly stored in the /messages subcollection.
       allow update: if isVerifiedUtmUser() && (
         existing().buyerId == request.auth.uid || 
         existing().sellerId == request.auth.uid ||
@@ -622,7 +640,7 @@ service cloud.firestore {
         incoming().sellerId == existing().sellerId &&
         incoming().get('participantIds', null) == existing().get('participantIds', null) &&
         incoming().diff(existing()).affectedKeys().hasOnly([
-          'lastMessage', 'lastMessageTime', 'updatedAt', 'unreadCount', 'messages'
+          'lastMessage', 'lastMessageTime', 'updatedAt', 'unreadCount'
         ]);
 
       allow delete: if false;
@@ -649,7 +667,7 @@ service cloud.firestore {
           ) &&
           incoming().keys().hasOnly([
             'id', 'conversationId', 'senderId', 'senderName', 'senderAvatar',
-            'text', 'timestamp', 'sharedListing', 'isRead'
+            'text', 'timestamp', 'sharedListing', 'isRead', 'createdAt'
           ]) &&
           incoming().senderId == request.auth.uid &&
           incoming().text is string && 
@@ -662,7 +680,85 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // 7. TRUSTED STAFF ADMINISTRATIVE WHITELIST (/staff_whitelist/{userId})
+    // 7. RECIPIENT-SCOPED NOTIFICATIONS (/notifications/{notificationId})
+    // ===============================================================
+    match /notifications/{notificationId} {
+      // Strictly scoped: only the intended recipient can read or list their notifications
+      allow get: if isVerifiedUtmUser() && resource.data.recipientId == request.auth.uid;
+      allow list: if isVerifiedUtmUser() && resource.data.recipientId == request.auth.uid;
+
+      // Only verified participants of a valid trade or rental (or self-notification) can create a notification
+      allow create: if isVerifiedUtmUser() &&
+        isValidId(notificationId) &&
+        incoming().keys().hasAll([
+          'recipientId', 'senderId', 'type', 'title', 'message', 'isRead', 'createdAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'id', 'recipientId', 'senderId', 'buyerId', 'sellerId',
+          'type', 'title', 'message', 'relatedRequestId', 'relatedListingId',
+          'relatedRentalId', 'linkTab', 'subTab', 'isRead', 'read', 'createdAt'
+        ]) &&
+        isValidId(incoming().recipientId) &&
+        isValidId(incoming().senderId) &&
+        incoming().senderId == request.auth.uid &&
+        (!('id' in incoming()) || incoming().id == notificationId) &&
+        incoming().type in [
+          'purchase_request', 'purchase_request_sent', 'trade', 'trade_request',
+          'borrow', 'borrow_reminder', 'wanted', 'budget', 'budget_warning',
+          'system', 'price_alert', 'pet_milestone', 'rental', 'rental_request',
+          'rental_approved', 'rental_rejected', 'rental_return_reminder',
+          'rental_inspected', 'rental_refunded', 'rental_dispute'
+        ] &&
+        incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
+        incoming().message is string && incoming().message.size() > 0 && incoming().message.size() <= 1000 &&
+        incoming().isRead == false &&
+        (!('read' in incoming()) || incoming().read == false) &&
+        (!('buyerId' in incoming()) || isValidId(incoming().buyerId)) &&
+        (!('sellerId' in incoming()) || isValidId(incoming().sellerId)) &&
+        (!('relatedRequestId' in incoming()) || isValidId(incoming().relatedRequestId)) &&
+        (!('relatedListingId' in incoming()) || isValidId(incoming().relatedListingId)) &&
+        (!('relatedRentalId' in incoming()) || isValidId(incoming().relatedRentalId)) &&
+        (!('linkTab' in incoming()) || (incoming().linkTab is string && incoming().linkTab.size() <= 50)) &&
+        (!('subTab' in incoming()) || (incoming().subTab is string && incoming().subTab.size() <= 50)) &&
+        (incoming().createdAt == request.time || (incoming().createdAt is string && incoming().createdAt.size() <= 50)) &&
+        (
+          incoming().recipientId == request.auth.uid ||
+          (
+            'relatedRequestId' in incoming() &&
+            exists(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)) &&
+            (
+              (get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId == request.auth.uid &&
+               get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId == incoming().recipientId) ||
+              (get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId == request.auth.uid &&
+               get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId == incoming().recipientId)
+            )
+          ) ||
+          (
+            'relatedRentalId' in incoming() &&
+            exists(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)) &&
+            (
+              (get(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)).data.renterId == request.auth.uid &&
+               get(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)).data.ownerId == incoming().recipientId) ||
+              (get(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)).data.ownerId == request.auth.uid &&
+               get(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)).data.renterId == incoming().recipientId)
+            )
+          )
+        );
+
+      // Recipient can only mark their own notification as read
+      allow update: if isVerifiedUtmUser() &&
+        isValidId(notificationId) &&
+        resource.data.recipientId == request.auth.uid &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['isRead', 'read']) &&
+        incoming().isRead is bool &&
+        (!('read' in incoming()) || incoming().read is bool);
+
+      // Recipient can clear their own notifications
+      allow delete: if isVerifiedUtmUser() && resource.data.recipientId == request.auth.uid;
+    }
+
+    // ===============================================================
+    // 8. TRUSTED STAFF ADMINISTRATIVE WHITELIST (/staff_whitelist/{userId})
     // ===============================================================
     match /staff_whitelist/{userId} {
       // Whitelist cannot be read or written from client SDKs; managed via Admin SDK/Console only

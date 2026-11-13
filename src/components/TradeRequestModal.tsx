@@ -19,8 +19,9 @@ interface TradeRequestModalProps {
     quantity: number;
     totalPrice: number;
     status: TradeRequest['status'];
-  }) => void;
-  onSubmitRequest?: (requestData: any) => void;
+  }) => Promise<void> | void;
+  onSubmitRequest?: (requestData: any) => Promise<void> | void;
+  currentUserId?: string;
   currentUserName?: string;
   currentUserEmail?: string;
 }
@@ -30,6 +31,7 @@ export const TradeRequestModal: React.FC<TradeRequestModalProps> = ({
   onClose,
   onSubmit,
   onSubmitRequest,
+  currentUserId,
   currentUserName = 'UTM Student',
   currentUserEmail = '',
 }) => {
@@ -55,8 +57,18 @@ export const TradeRequestModal: React.FC<TradeRequestModalProps> = ({
   const parsedUnitPrice = parseFloat(offeredUnitPrice) || listing.price;
   const calculatedTotal = parsedUnitPrice * requestedQty;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!listing.sellerId) {
+      setError('Seller information is missing for this product. Please refresh and try again.');
+      return;
+    }
+
+    if (currentUserId && listing.sellerId === currentUserId) {
+      setError('You cannot submit a purchase request for your own product.');
+      return;
+    }
 
     if (remainingQty <= 0) {
       setError('Sorry, this product is currently sold out.');
@@ -100,15 +112,18 @@ export const TradeRequestModal: React.FC<TradeRequestModalProps> = ({
       totalPrice: calculatedTotal,
       pickupLocation: pickupLocation || listing.campusLocation || 'Campus Meetup Point',
       message: message.trim(),
-      status: 'Pending Seller Response' as const,
+      status: 'Pending' as const,
     };
 
-    setTimeout(() => {
-      if (onSubmit) onSubmit(payload as any);
-      if (onSubmitRequest) onSubmitRequest(payload);
-      setIsSubmitting(false);
+    try {
+      if (onSubmit) await onSubmit(payload as any);
+      if (onSubmitRequest) await onSubmitRequest(payload);
       onClose();
-    }, 250);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to submit purchase request. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

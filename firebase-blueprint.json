@@ -164,6 +164,30 @@
         "isRead": { "type": "boolean" }
       },
       "required": ["conversationId", "senderId", "senderName", "text", "timestamp"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Recipient-scoped campus notification stored in Firestore",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "recipientId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "buyerId": { "type": "string", "maxLength": 128 },
+        "sellerId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 150 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "relatedRequestId": { "type": "string", "maxLength": 128 },
+        "relatedListingId": { "type": "string", "maxLength": 128 },
+        "relatedRentalId": { "type": "string", "maxLength": 128 },
+        "linkTab": { "type": "string", "maxLength": 50 },
+        "subTab": { "type": "string", "maxLength": 50 },
+        "isRead": { "type": "boolean" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["recipientId", "senderId", "type", "title", "message", "isRead", "createdAt"]
     }
   },
   "firestore": {
@@ -194,6 +218,10 @@
     "/conversations/{conversationId}/messages/{messageId}": {
       "schema": "ChatMessage",
       "description": "Direct chat messages between conversation participants"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Recipient-scoped user notifications for purchase requests, approvals, and rental events"
     }
   }
 }
