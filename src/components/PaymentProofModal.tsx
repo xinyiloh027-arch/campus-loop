@@ -58,12 +58,12 @@ export const PaymentProofModal: React.FC<PaymentProofModalProps> = ({
     setFileName(file.name);
 
     try {
-      // Compress and optimize receipt screenshot via Canvas (max 800px)
-      const dataUrl = await imageStorageService.processImageFile(file, 800);
+      // Compress and optimize receipt screenshot via Canvas (max 800px, <= 480,000 chars for Firestore 500k rule)
+      const dataUrl = await imageStorageService.processImageFile(file, 800, 480000);
       setProofImage(dataUrl);
     } catch (err: any) {
       console.error('Error processing receipt:', err);
-      setError('Failed to process payment receipt. Please try another image.');
+      setError(err?.message || 'Failed to process payment receipt. Please try another image.');
     } finally {
       setIsProcessing(false);
       e.target.value = '';
@@ -79,6 +79,10 @@ export const PaymentProofModal: React.FC<PaymentProofModalProps> = ({
     e.preventDefault();
     if (!proofImage) {
       setError('Please upload a screenshot or photo of your payment receipt.');
+      return;
+    }
+    if (proofImage.length > 500000) {
+      setError('Receipt image is too large (exceeds 500,000 characters). Please replace it with a smaller image.');
       return;
     }
 

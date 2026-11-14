@@ -76,6 +76,8 @@ export default function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingListing, setEditingListing] = useState<Listing | null>(null);
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
+  const [meInitialSubTab, setMeInitialSubTab] = useState<string | undefined>(undefined);
+  const [focusedTradeRequestId, setFocusedTradeRequestId] = useState<string | null>(null);
 
   // Toasts
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -95,17 +97,21 @@ export default function App() {
   // Initial Data Load
   const loadAllData = () => {
     try {
+      const user = authService.getCurrentUser();
+      const state = authService.getAccountState();
+      const canAccessPrivate = Boolean(user && user.emailVerified && state !== 'Suspended');
+
       setListings(storageService.getListings());
-      setTradeRequests(storageService.getTradeRequests());
+      setTradeRequests(canAccessPrivate ? storageService.getTradeRequests() : []);
       setCart(storageService.getCart());
       setUserProfile(storageService.getUserProfile());
       setReviews(storageService.getReviews());
       setConversations(storageService.getChatConversations());
       setRentalItems(storageService.getRentalItems());
-      setRentalRequests(storageService.getRentalRequests());
-      setNotifications(storageService.getNotifications());
-      setCurrentUser(authService.getCurrentUser());
-      setAccountState(authService.getAccountState());
+      setRentalRequests(canAccessPrivate ? storageService.getRentalRequests() : []);
+      setNotifications(canAccessPrivate ? storageService.getNotifications() : []);
+      setCurrentUser(user);
+      setAccountState(state);
     } catch (e) {
       console.error('Error loading initial data:', e);
     } finally {
@@ -126,8 +132,9 @@ export default function App() {
 
     // Subscribe to auth state updates
     const unsubscribeAuth = authService.onAuthChange((user) => {
+      const nextState = authService.getAccountState();
       setCurrentUser(user);
-      setAccountState(authService.getAccountState());
+      setAccountState(nextState);
       if (user) {
         setUserProfile((prev) => ({
           ...prev,
@@ -139,20 +146,12 @@ export default function App() {
           emailVerified: user.emailVerified,
           isSuspended: user.isSuspended,
         }));
+      } else {
+        setTradeRequests([]);
+        setNotifications([]);
+        setMeInitialSubTab(undefined);
+        setFocusedTradeRequestId(null);
       }
-    });
-
-    // Real-time Firestore subscriptions for listings, trades, and rentals
-    const unsubscribeListings = storageService.subscribeToListings((realListings) => {
-      setListings(realListings);
-    });
-
-    const unsubscribeTrades = storageService.subscribeToTradeRequests((realTrades) => {
-      setTradeRequests(realTrades);
-    });
-
-    const unsubscribeRentals = storageService.subscribeToRentalItems((realRentals) => {
-      setRentalItems(realRentals);
     });
 
     const handleOpenListing = () => {
@@ -171,13 +170,51 @@ export default function App() {
 
     return () => {
       unsubscribeAuth();
-      unsubscribeListings();
-      unsubscribeTrades();
-      unsubscribeRentals();
       window.removeEventListener('campusloop:open-create-listing', handleOpenListing);
       window.removeEventListener('focus', handleWindowFocus);
     };
   }, []);
+
+  // Real-time Firestore subscriptions scoped to verified authenticated user
+  useEffect(() => {
+    const activeUid = currentUser?.id;
+    const isVerifiedMember = Boolean(activeUid && currentUser?.emailVerified && accountState !== 'Suspended');
+
+    const unsubscribeListings = storageService.subscribeToListings((realListings) => {
+      setListings(realListings);
+    });
+
+    const unsubscribeRentals = storageService.subscribeToRentalItems((realRentals) => {
+      setRentalItems(realRentals);
+    });
+
+    if (!isVerifiedMember || !activeUid) {
+      setTradeRequests([]);
+      setNotifications([]);
+      if (!activeUid) {
+        storageService.clearUserScopedLocalCache();
+      }
+      return () => {
+        unsubscribeListings();
+        unsubscribeRentals();
+      };
+    }
+
+    const unsubscribeTrades = storageService.subscribeToTradeRequests(activeUid, (realTrades) => {
+      setTradeRequests(realTrades);
+    });
+
+    const unsubscribeNotifications = storageService.subscribeToNotifications(activeUid, (realNotifs) => {
+      setNotifications(realNotifs);
+    });
+
+    return () => {
+      unsubscribeListings();
+      unsubscribeRentals();
+      unsubscribeTrades();
+      unsubscribeNotifications();
+    };
+  }, [currentUser?.id, currentUser?.emailVerified, accountState]);
 
   // ==========================================
   // TRANSACTION GATEKEEPER
@@ -216,12 +253,16 @@ export default function App() {
 
   const handleSignOut = async () => {
     await authService.logout();
+    storageService.clearUserScopedLocalCache();
     setCurrentUser(null);
     setAccountState('Signed Out');
     
     // Requirement 6: Clear protected user data from interface
     setCart([]);
     setTradeRequests([]);
+    setNotifications([]);
+    setMeInitialSubTab(undefined);
+    setFocusedTradeRequestId(null);
     setActiveChatId(undefined);
     addToast('info', 'Signed Out', 'You have signed out. Protected personal data cleared from interface.');
   };
@@ -285,12 +326,17 @@ export default function App() {
         listingTitle: item.listing.title,
         listingPrice: item.listing.price,
         listingImage: item.listing.imageUrl,
+        sellerId: item.listing.sellerId,
         sellerName: item.listing.sellerName,
+        buyerId: effectiveId,
         buyerName: effectiveName,
         buyerContact: effectiveEmail || '',
-        offeredPrice: item.listing.price * item.quantity,
+        quantity: item.quantity,
+        offeredPrice: item.listing.price,
+        totalPrice: item.listing.price * item.quantity,
         pickupLocation: handoverLocation,
         message: `${notes} (Qty: ${item.quantity}, Preferred Time: ${preferredTime})`,
+        status: 'Pending',
       });
       createdRequests.push(newReq);
 
@@ -309,11 +355,15 @@ export default function App() {
       );
     }
 
-    setTradeRequests((prev) => [...createdRequests, ...prev]);
+    setTradeRequests((prev) => [
+      ...createdRequests,
+      ...prev.filter((r) => !createdRequests.some((c) => c.id === r.id)),
+    ]);
 
     const updatedCart = storageService.clearSelectedCartItems();
     setCart(updatedCart);
     setConversations(storageService.getChatConversations());
+    setNotifications(storageService.getNotifications());
 
     addToast(
       'success',
@@ -857,6 +907,33 @@ export default function App() {
     setNotifications(updated);
   };
 
+  const handleSelectNotification = (notification: CampusNotification) => {
+    handleMarkNotificationRead(notification.id);
+    setIsNotificationDrawerOpen(false);
+
+    const targetTab = (notification.linkTab || 'me') as NavTab;
+    if (targetTab === 'home' || targetTab === 'cart' || targetTab === 'mall' || targetTab === 'rent' || targetTab === 'chat' || targetTab === 'me') {
+      setActiveTab(targetTab);
+    } else {
+      setActiveTab('me');
+    }
+
+    const inferredSubTab =
+      notification.subTab ||
+      (notification.type === 'purchase_request'
+        ? 'sales'
+        : notification.type === 'purchase_request_sent'
+          ? 'purchases'
+          : undefined);
+
+    if (inferredSubTab) {
+      setMeInitialSubTab(inferredSubTab);
+    }
+    if (notification.relatedRequestId) {
+      setFocusedTradeRequestId(notification.relatedRequestId);
+    }
+  };
+
   // Profile update
   const handleUpdateProfile = (updated: Partial<UserProfile>) => {
     const next = { ...userProfile, ...updated };
@@ -980,6 +1057,9 @@ export default function App() {
             savedListings={savedListings}
             rentalItems={rentalItems}
             rentalRequests={rentalRequests}
+            initialSubTab={meInitialSubTab}
+            focusedTradeRequestId={focusedTradeRequestId}
+            onClearFocusedTradeRequest={() => setFocusedTradeRequestId(null)}
             onSelectListing={(item) => setDetailModalListing(item)}
             onSelectRentalItem={(item) => setSelectedRentalItem(item)}
             onOpenCreateModal={handleOpenCreateListingModal}
@@ -1055,6 +1135,7 @@ export default function App() {
       {tradeModalListing && (
         <TradeRequestModal
           listing={tradeModalListing}
+          currentUserId={currentUser?.id}
           currentUserName={currentUser?.name || userProfile.name}
           currentUserEmail={currentUser?.email || userProfile.email}
           onClose={() => setTradeModalListing(null)}
@@ -1135,6 +1216,7 @@ export default function App() {
         onMarkAsRead={handleMarkNotificationRead}
         onMarkAllAsRead={handleMarkAllNotificationsRead}
         onClearAll={handleClearAllNotifications}
+        onSelectNotification={handleSelectNotification}
         onNavigateTab={(tab) => {
           if (tab === 'rent' || tab === 'me' || tab === 'chat' || tab === 'mall' || tab === 'cart') {
             setActiveTab(tab as any);

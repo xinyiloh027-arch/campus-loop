@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, 
   Mail, 
@@ -80,6 +80,8 @@ interface MeViewProps {
   onUpdateProfile: (updated: Partial<UserProfile>) => void;
   onResetData: () => void;
   initialSubTab?: string;
+  focusedTradeRequestId?: string | null;
+  onClearFocusedTradeRequest?: () => void;
   onSignOut?: () => void;
   onOpenAuthModal?: () => void;
   onNavigateToPetWorld?: () => void;
@@ -124,6 +126,8 @@ export const MeView: React.FC<MeViewProps> = ({
   onUpdateProfile,
   onResetData,
   initialSubTab,
+  focusedTradeRequestId,
+  onClearFocusedTradeRequest,
   onSignOut,
   onOpenAuthModal,
   onNavigateToPetWorld,
@@ -156,6 +160,32 @@ export const MeView: React.FC<MeViewProps> = ({
   const effectiveEmail = currentUser?.email || profile.email;
   const effectiveName = currentUser?.name || profile.name;
   const effectiveId = currentUser?.id;
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveMainTab(initialSubTab as MainTab);
+    }
+  }, [initialSubTab]);
+
+  useEffect(() => {
+    if (!focusedTradeRequestId || !tradeRequests.length) return;
+    const target = tradeRequests.find((r) => r.id === focusedTradeRequestId);
+    if (!target) return;
+
+    const isSellerForReq = Boolean(effectiveId && target.sellerId === effectiveId);
+    const isBuyerForReq = Boolean(effectiveId && target.buyerId === effectiveId);
+
+    if (isSellerForReq) {
+      setActiveMainTab('sales');
+      if (['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'].includes(target.status)) {
+        setSelectedSellerReviewRequest(target);
+      }
+    } else if (isBuyerForReq || target.isSentByCurrentUser) {
+      setActiveMainTab('purchases');
+    }
+
+    onClearFocusedTradeRequest?.();
+  }, [focusedTradeRequestId, tradeRequests, effectiveId, onClearFocusedTradeRequest]);
 
   // Real User Listings: strictly matched by sellerId, user email, or seller display name
   const myListings = isUserSignedIn
@@ -1559,8 +1589,9 @@ export const MeView: React.FC<MeViewProps> = ({
 
                       {/* Purchase request count & status */}
                       {(() => {
-                        const itemTrades = tradeRequests.filter((r) => r.listingId === item.id);
-                        const pendingReq = itemTrades.find((r) => r.status === 'Payment Under Review' || r.status === 'Pending Seller Response');
+                        const itemTrades = mySales.filter((r) => r.listingId === item.id);
+                        const pendingReq = itemTrades.find((r) => r.status === 'Payment Under Review' || r.status === 'Pending Seller Response' || r.status === 'Pending');
+                        const isListingSeller = !effectiveId || !item.sellerId || item.sellerId === effectiveId;
 
                         return (
                           <div className="space-y-2">
@@ -1586,7 +1617,7 @@ export const MeView: React.FC<MeViewProps> = ({
                               </button>
 
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                {pendingReq && (
+                                {pendingReq && isListingSeller && (
                                   <button
                                     type="button"
                                     onClick={() => setSelectedSellerReviewRequest(pendingReq)}
@@ -1845,16 +1876,12 @@ export const MeView: React.FC<MeViewProps> = ({
                           </button>
                         )}
 
-                        {/* Mark Completed when approved */}
-                        {isApproved && onCompleteTransaction && (
-                          <button
-                            type="button"
-                            onClick={() => onCompleteTransaction(req.id)}
-                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Check className="w-4 h-4" />
-                            <span>Mark Received & Completed</span>
-                          </button>
+                        {/* Seller finalizes handover completion per security rules */}
+                        {isApproved && (
+                          <span className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-[11px] inline-flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Meet seller to collect; seller confirms handover</span>
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1952,6 +1979,7 @@ export const MeView: React.FC<MeViewProps> = ({
                   const totalAmount = req.totalPrice || (req.offeredPrice * (req.quantity || 1));
                   const isUnderReview = req.status === 'Payment Under Review';
                   const isApproved = req.status === 'Approved' || req.status === 'Accepted';
+                  const isSellerOwner = !effectiveId || !req.sellerId || req.sellerId === effectiveId;
 
                   return (
                     <div
@@ -2041,7 +2069,7 @@ export const MeView: React.FC<MeViewProps> = ({
 
                         <div className="flex items-center gap-2">
                           {/* Pending Seller Response */}
-                          {(req.status === 'Pending Seller Response' || req.status === 'Pending') && (
+                          {(req.status === 'Pending Seller Response' || req.status === 'Pending') && isSellerOwner && (
                             <>
                               <button
                                 type="button"
@@ -2061,7 +2089,7 @@ export const MeView: React.FC<MeViewProps> = ({
                           )}
 
                           {/* Approved: Mark Handover Completed */}
-                          {isApproved && onCompleteTransaction && (
+                          {isApproved && onCompleteTransaction && isSellerOwner && (
                             <button
                               type="button"
                               onClick={() => onCompleteTransaction(req.id)}
@@ -2106,6 +2134,7 @@ export const MeView: React.FC<MeViewProps> = ({
           onClose={() => setSelectedSellerReviewRequest(null)}
           request={selectedSellerReviewRequest}
           listing={listings.find(l => l.id === selectedSellerReviewRequest.listingId) || null}
+          currentUserId={effectiveId}
           onApprove={async (requestId) => {
             if (onApproveTransaction) {
               await onApproveTransaction(requestId);

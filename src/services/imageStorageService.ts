@@ -87,7 +87,8 @@ class ImageStorageService {
    */
   public async optimizeAndCropImage(
     fileOrUrl: File | string,
-    maxDim = 600
+    maxDim = 600,
+    quality = 0.88
   ): Promise<{ dataUrl: string; width: number; height: number }> {
     return new Promise((resolve, reject) => {
       let src = '';
@@ -137,9 +138,9 @@ class ImageStorageService {
         // Export as WebP if supported, fallback to JPEG/PNG
         let outputDataUrl = '';
         try {
-          outputDataUrl = canvas.toDataURL('image/webp', 0.88);
+          outputDataUrl = canvas.toDataURL('image/webp', quality);
           if (!outputDataUrl.startsWith('data:image/webp')) {
-            outputDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            outputDataUrl = canvas.toDataURL('image/jpeg', Math.min(quality, 0.85));
           }
         } catch {
           outputDataUrl = canvas.toDataURL('image/png');
@@ -165,19 +166,44 @@ class ImageStorageService {
 
   /**
    * Process and compress product listing images & payment proof receipts
-   * Accepts JPG, PNG, WEBP files and scales to max 800px with 85% compression
-   * Prevents localStorage quota errors and enables smooth image rendering
+   * Accepts JPG, PNG, WEBP files and scales to max 800px with adaptive compression
+   * Ensures compressed Data URLs stay within optional maxDataUrlLength (e.g. 480,000 chars for Firestore rules)
    */
-  public async processImageFile(file: File, maxDim = 800): Promise<string> {
+  public async processImageFile(file: File, maxDim = 800, maxDataUrlLength?: number): Promise<string> {
     try {
-      const result = await this.optimizeAndCropImage(file, maxDim);
+      let result = await this.optimizeAndCropImage(file, maxDim, 0.88);
+      if (maxDataUrlLength && result.dataUrl.length > maxDataUrlLength) {
+        const attempts: Array<{ dim: number; quality: number }> = [
+          { dim: maxDim, quality: 0.72 },
+          { dim: Math.min(maxDim, 640), quality: 0.65 },
+          { dim: Math.min(maxDim, 520), quality: 0.55 },
+          { dim: Math.min(maxDim, 420), quality: 0.45 },
+        ];
+        for (const attempt of attempts) {
+          result = await this.optimizeAndCropImage(file, attempt.dim, attempt.quality);
+          if (result.dataUrl.length <= maxDataUrlLength) {
+            break;
+          }
+        }
+        if (result.dataUrl.length > maxDataUrlLength) {
+          throw new Error('Compressed image still exceeds maximum allowed upload size.');
+        }
+      }
       return result.dataUrl;
-    } catch {
-      // Fallback to FileReader if Canvas is unavailable or blocked
+    } catch (canvasErr) {
+      // Fallback to FileReader only when Canvas is unavailable; still enforce maxDataUrlLength if set
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
           if (typeof reader.result === 'string') {
+            if (maxDataUrlLength && reader.result.length > maxDataUrlLength) {
+              reject(
+                canvasErr instanceof Error && canvasErr.message.includes('maximum allowed')
+                  ? canvasErr
+                  : new Error('Image file is too large for upload (must fit within 500,000 characters). Please choose a smaller screenshot.')
+              );
+              return;
+            }
             resolve(reader.result);
           } else {
             reject(new Error('Failed to read image file.'));

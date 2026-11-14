@@ -74,6 +74,14 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/rentals/$(rentalId));
     }
 
+    function getTrade(tradeId) {
+      return get(/databases/$(database)/documents/trades/$(tradeId)).data;
+    }
+
+    function tradeExists(tradeId) {
+      return exists(/databases/$(database)/documents/trades/$(tradeId));
+    }
+
     // ===============================================================
     // 1. USER PROFILES (/users/{userId})
     // ===============================================================
@@ -162,7 +170,7 @@ service cloud.firestore {
         incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
         incoming().description is string && incoming().description.size() <= 2000 &&
         incoming().condition in ['Brand New', 'Like New', 'Good', 'Fair'] &&
-        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed'] &&
+        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed', 'Deleted', 'Delisted'] &&
         (!('originalQuantity' in incoming()) || (incoming().originalQuantity is int && incoming().originalQuantity >= 1)) &&
         (!('remainingQuantity' in incoming()) || (
           incoming().remainingQuantity is int && 
@@ -192,7 +200,7 @@ service cloud.firestore {
         ]) &&
         incoming().price is number && incoming().price >= 0 &&
         incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
-        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed'] &&
+        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed', 'Deleted', 'Delisted'] &&
         (!('originalQuantity' in incoming()) || (incoming().originalQuantity is int && incoming().originalQuantity >= 1)) &&
         (!('remainingQuantity' in incoming()) || (
           incoming().remainingQuantity is int && 
@@ -285,10 +293,13 @@ service cloud.firestore {
           'id', 'listingId', 'listingTitle', 'listingPrice', 'listingImage',
           'sellerId', 'sellerName', 'buyerId', 'buyerName', 'buyerContact',
           'offeredPrice', 'pickupLocation', 'message', 'status', 'createdAt',
-          'isSentByCurrentUser', 'quantity', 'totalPrice'
+          'quantity', 'totalPrice'
         ]) &&
         incoming().buyerId == request.auth.uid &&
         incoming().sellerId != request.auth.uid &&
+        (!('id' in incoming()) || incoming().id == tradeId) &&
+        (!('listingImage' in incoming()) || (incoming().listingImage is string && incoming().listingImage.size() <= 500000)) &&
+        (!('message' in incoming()) || (incoming().message is string && incoming().message.size() <= 1000)) &&
         listingExists(incoming().listingId) &&
         getListing(incoming().listingId).sellerId == incoming().sellerId &&
         getListing(incoming().listingId).sellerId != request.auth.uid &&
@@ -321,15 +332,16 @@ service cloud.firestore {
           (
             existing().buyerId == request.auth.uid &&
             (
-              // Action 1: Submit payment proof (from active/pending states ONLY, NEVER from Approved or terminal states)
+              // Action 1: Submit payment proof (from active/pending/under-review states ONLY, NEVER from Approved or terminal states)
               (incoming().status == 'Payment Under Review' &&
-               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Proof Rejected'] &&
+               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review', 'Payment Proof Rejected'] &&
                incoming().diff(existing()).affectedKeys().hasOnly([
                  'status', 'paymentProofUrl', 'paymentProofUploadedAt', 'paymentMethod', 'rejectionReason'
                ]) &&
-               incoming().paymentProofUrl is string && incoming().paymentProofUrl.size() > 0 && incoming().paymentProofUrl.size() <= 1000 &&
+               incoming().paymentProofUrl is string && incoming().paymentProofUrl.size() > 0 && incoming().paymentProofUrl.size() <= 500000 &&
                incoming().paymentProofUploadedAt is string && incoming().paymentProofUploadedAt.size() <= 50 &&
                incoming().paymentMethod is string && incoming().paymentMethod.size() <= 100 &&
+               (!('rejectionReason' in incoming()) || incoming().rejectionReason == null || (incoming().rejectionReason is string && incoming().rejectionReason.size() <= 500)) &&
                incoming().get('approvedAt', null) == existing().get('approvedAt', null) &&
                incoming().get('completedAt', null) == existing().get('completedAt', null) &&
                incoming().get('hasSellerReviewed', false) == existing().get('hasSellerReviewed', false) &&
@@ -386,7 +398,7 @@ service cloud.firestore {
               (incoming().status == 'Rejected' &&
                existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'] &&
                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'rejectionReason']) &&
-               (!('rejectionReason' in incoming()) || (incoming().rejectionReason is string && incoming().rejectionReason.size() <= 500))) ||
+               (!('rejectionReason' in incoming()) || incoming().rejectionReason == null || (incoming().rejectionReason is string && incoming().rejectionReason.size() <= 500))) ||
 
               // Action 3: Reject payment proof (only from review state)
               (incoming().status == 'Payment Proof Rejected' &&
@@ -687,7 +699,7 @@ service cloud.firestore {
       allow get: if isVerifiedUtmUser() && resource.data.recipientId == request.auth.uid;
       allow list: if isVerifiedUtmUser() && resource.data.recipientId == request.auth.uid;
 
-      // Only verified participants of a valid trade or rental (or self-notification) can create a notification
+      // Only verified participants of a valid trade or rental (or restricted self-notifications) can create a notification
       allow create: if isVerifiedUtmUser() &&
         isValidId(notificationId) &&
         incoming().keys().hasAll([
@@ -720,20 +732,43 @@ service cloud.firestore {
         (!('relatedRentalId' in incoming()) || isValidId(incoming().relatedRentalId)) &&
         (!('linkTab' in incoming()) || (incoming().linkTab is string && incoming().linkTab.size() <= 50)) &&
         (!('subTab' in incoming()) || (incoming().subTab is string && incoming().subTab.size() <= 50)) &&
-        (incoming().createdAt == request.time || (incoming().createdAt is string && incoming().createdAt.size() <= 50)) &&
+        incoming().createdAt == request.time &&
         (
-          incoming().recipientId == request.auth.uid ||
+          // Branch 1: Trade counterparty notification (buyer <-> seller, never self)
           (
+            incoming().recipientId != request.auth.uid &&
+            incoming().type in ['purchase_request', 'trade', 'trade_request'] &&
             'relatedRequestId' in incoming() &&
-            exists(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)) &&
+            tradeExists(incoming().relatedRequestId) &&
             (
-              (get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId == request.auth.uid &&
-               get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId == incoming().recipientId) ||
-              (get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId == request.auth.uid &&
-               get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId == incoming().recipientId)
-            )
+              (getTrade(incoming().relatedRequestId).buyerId == request.auth.uid &&
+               getTrade(incoming().relatedRequestId).sellerId == incoming().recipientId) ||
+              (getTrade(incoming().relatedRequestId).sellerId == request.auth.uid &&
+               getTrade(incoming().relatedRequestId).buyerId == incoming().recipientId)
+            ) &&
+            (!('buyerId' in incoming()) || incoming().buyerId == getTrade(incoming().relatedRequestId).buyerId) &&
+            (!('sellerId' in incoming()) || incoming().sellerId == getTrade(incoming().relatedRequestId).sellerId) &&
+            (!('relatedListingId' in incoming()) || incoming().relatedListingId == getTrade(incoming().relatedRequestId).listingId)
           ) ||
+          // Branch 2: Buyer confirmation notification (must reference buyer's own real trade)
           (
+            incoming().recipientId == request.auth.uid &&
+            incoming().type == 'purchase_request_sent' &&
+            'relatedRequestId' in incoming() &&
+            tradeExists(incoming().relatedRequestId) &&
+            getTrade(incoming().relatedRequestId).buyerId == request.auth.uid &&
+            (!('buyerId' in incoming()) || incoming().buyerId == getTrade(incoming().relatedRequestId).buyerId) &&
+            (!('sellerId' in incoming()) || incoming().sellerId == getTrade(incoming().relatedRequestId).sellerId) &&
+            (!('relatedListingId' in incoming()) || incoming().relatedListingId == getTrade(incoming().relatedRequestId).listingId)
+          ) ||
+          // Branch 3: Rental counterparty notification (renter <-> owner, never self)
+          (
+            incoming().recipientId != request.auth.uid &&
+            incoming().type in [
+              'rental', 'rental_request', 'rental_approved', 'rental_rejected',
+              'rental_return_reminder', 'rental_inspected', 'rental_refunded',
+              'rental_dispute', 'borrow', 'borrow_reminder'
+            ] &&
             'relatedRentalId' in incoming() &&
             exists(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)) &&
             (
@@ -742,6 +777,15 @@ service cloud.firestore {
               (get(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)).data.ownerId == request.auth.uid &&
                get(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)).data.renterId == incoming().recipientId)
             )
+          ) ||
+          // Branch 4: Personal/system self-notifications only (no forged trade/rental metadata)
+          (
+            incoming().recipientId == request.auth.uid &&
+            incoming().type in ['wanted', 'budget', 'budget_warning', 'system', 'price_alert', 'pet_milestone'] &&
+            !('relatedRequestId' in incoming()) &&
+            !('relatedRentalId' in incoming()) &&
+            !('buyerId' in incoming()) &&
+            !('sellerId' in incoming())
           )
         );
 
