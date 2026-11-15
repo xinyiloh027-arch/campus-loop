@@ -763,13 +763,16 @@ export const storageService = {
       throw new Error('Authenticated buyer ID is required.');
     }
 
-    // Resolve authoritative sellerId from payload, Firestore listing doc, or local cache
+    // Resolve authoritative sellerId from Firestore listing doc first, then payload or local cache
     let resolvedSellerId = data.sellerId;
-    if (!resolvedSellerId && db && data.listingId) {
+    if (db && data.listingId) {
       try {
         const listingSnap = await getDoc(doc(db, 'listings', data.listingId));
         if (listingSnap.exists()) {
-          resolvedSellerId = (listingSnap.data() as any).sellerId;
+          const firestoreSellerId = (listingSnap.data() as any).sellerId;
+          if (firestoreSellerId) {
+            resolvedSellerId = firestoreSellerId;
+          }
         }
       } catch (err) {
         console.warn('Could not fetch listing sellerId from Firestore:', err);
@@ -860,7 +863,7 @@ export const storageService = {
         linkTab: 'me',
         subTab: 'sales',
       }).catch((notifErr) => {
-        console.warn('Seller notification write warning:', notifErr);
+        console.error('Failed to deliver seller notification in Firestore (ensure /firestore.rules are deployed):', notifErr);
       });
 
       // Step 3: Sequentially create buyer confirmation notification (User A)

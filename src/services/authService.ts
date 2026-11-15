@@ -114,9 +114,10 @@ class AuthService {
           this.saveLocalSession(mappedUser, `fb-${fbUser.uid}`);
           this.notifyListeners(mappedUser);
         } else {
-          // If Firebase signed out, clear local session if it was a firebase session
+          // If Firebase signed out, clear local session if it was a Firebase session
           const current = this.getCurrentUser();
-          if (current && current.id.startsWith('fb-')) {
+          const token = this.getAuthToken();
+          if (current && ((token && token.startsWith('fb-')) || current.id.startsWith('fb-'))) {
             this.clearLocalSession();
             this.notifyListeners(null);
           }
