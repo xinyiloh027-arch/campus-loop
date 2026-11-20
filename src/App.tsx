@@ -76,8 +76,6 @@ export default function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingListing, setEditingListing] = useState<Listing | null>(null);
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
-  const [meInitialSubTab, setMeInitialSubTab] = useState<string | undefined>(undefined);
-  const [focusedTradeRequestId, setFocusedTradeRequestId] = useState<string | null>(null);
 
   // Toasts
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -97,21 +95,17 @@ export default function App() {
   // Initial Data Load
   const loadAllData = () => {
     try {
-      const user = authService.getCurrentUser();
-      const state = authService.getAccountState();
-      const canAccessPrivate = Boolean(user && user.emailVerified && state !== 'Suspended');
-
       setListings(storageService.getListings());
-      setTradeRequests(canAccessPrivate ? storageService.getTradeRequests() : []);
+      setTradeRequests(storageService.getTradeRequests());
       setCart(storageService.getCart());
       setUserProfile(storageService.getUserProfile());
       setReviews(storageService.getReviews());
       setConversations(storageService.getChatConversations());
       setRentalItems(storageService.getRentalItems());
-      setRentalRequests(canAccessPrivate ? storageService.getRentalRequests() : []);
-      setNotifications(canAccessPrivate ? storageService.getNotifications() : []);
-      setCurrentUser(user);
-      setAccountState(state);
+      setRentalRequests(storageService.getRentalRequests());
+      setNotifications(storageService.getNotifications());
+      setCurrentUser(authService.getCurrentUser());
+      setAccountState(authService.getAccountState());
     } catch (e) {
       console.error('Error loading initial data:', e);
     } finally {
@@ -119,102 +113,127 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    // Remove startup diagnostic screen now that React App is active
-    try {
-      const diag = document.getElementById('campusloop-startup-diag');
-      if (diag) {
-        diag.remove();
-      }
-    } catch {}
 
-    loadAllData();
+  
+useEffect(() => {
+  // Remove startup diagnostic screen now that React App is active
+  try {
+    const diag = document.getElementById('campusloop-startup-diag');
+    if (diag) {
+      diag.remove();
+    }
+  } catch {}
 
-    // Subscribe to auth state updates
-    const unsubscribeAuth = authService.onAuthChange((user) => {
-      const nextState = authService.getAccountState();
-      setCurrentUser(user);
-      setAccountState(nextState);
-      if (user) {
-        setUserProfile((prev) => ({
-          ...prev,
-          name: user.name,
-          email: user.email,
-          studentId: user.studentId || prev.studentId,
-          faculty: user.faculty || prev.faculty,
-          accountState: user.accountState,
-          emailVerified: user.emailVerified,
-          isSuspended: user.isSuspended,
-        }));
-      } else {
-        setTradeRequests([]);
-        setNotifications([]);
-        setMeInitialSubTab(undefined);
-        setFocusedTradeRequestId(null);
-      }
-    });
+  loadAllData();
 
-    const handleOpenListing = () => {
-      handleOpenCreateListingModal();
-    };
-    window.addEventListener('campusloop:open-create-listing', handleOpenListing);
+  // Listener cleanup references
+  let unsubscribeNotifications: (() => void) | null = null;
+  let unsubscribeTrades: (() => void) | null = null;
 
-    // Refresh email verification status if user returns to tab after verifying
-    const handleWindowFocus = () => {
-      const user = authService.getCurrentUser();
-      if (user && !user.emailVerified) {
-        authService.checkEmailVerificationStatus().catch(() => {});
-      }
-    };
-    window.addEventListener('focus', handleWindowFocus);
+  // Subscribe to authentication state updates
+  const unsubscribeAuth = authService.onAuthChange((user) => {
+    setCurrentUser(user);
+    setAccountState(authService.getAccountState());
 
-    return () => {
-      unsubscribeAuth();
-      window.removeEventListener('campusloop:open-create-listing', handleOpenListing);
-      window.removeEventListener('focus', handleWindowFocus);
-    };
-  }, []);
-
-  // Real-time Firestore subscriptions scoped to verified authenticated user
-  useEffect(() => {
-    const activeUid = currentUser?.id;
-    const isVerifiedMember = Boolean(activeUid && currentUser?.emailVerified && accountState !== 'Suspended');
-
-    const unsubscribeListings = storageService.subscribeToListings((realListings) => {
-      setListings(realListings);
-    });
-
-    const unsubscribeRentals = storageService.subscribeToRentalItems((realRentals) => {
-      setRentalItems(realRentals);
-    });
-
-    if (!isVerifiedMember || !activeUid) {
-      setTradeRequests([]);
-      setNotifications([]);
-      if (!activeUid) {
-        storageService.clearUserScopedLocalCache();
-      }
-      return () => {
-        unsubscribeListings();
-        unsubscribeRentals();
-      };
+    // Always stop previous user's listeners first
+    if (unsubscribeNotifications) {
+      unsubscribeNotifications();
+      unsubscribeNotifications = null;
     }
 
-    const unsubscribeTrades = storageService.subscribeToTradeRequests(activeUid, (realTrades) => {
-      setTradeRequests(realTrades);
-    });
-
-    const unsubscribeNotifications = storageService.subscribeToNotifications(activeUid, (realNotifs) => {
-      setNotifications(realNotifs);
-    });
-
-    return () => {
-      unsubscribeListings();
-      unsubscribeRentals();
+    if (unsubscribeTrades) {
       unsubscribeTrades();
+      unsubscribeTrades = null;
+    }
+
+    if (user) {
+      // Subscribe to purchase requests for the authenticated user
+      unsubscribeTrades = storageService.subscribeToTradeRequests(
+        (realTrades) => {
+          setTradeRequests(realTrades);
+        }
+      );
+
+      // Subscribe to notifications for the authenticated user
+      unsubscribeNotifications = storageService.subscribeToNotifications(
+        (realNotifications) => {
+          setNotifications(realNotifications);
+        }
+      );
+
+      setUserProfile((prev) => ({
+        ...prev,
+        name: user.name,
+        email: user.email,
+        studentId: user.studentId || prev.studentId,
+        faculty: user.faculty || prev.faculty,
+        accountState: user.accountState,
+        emailVerified: user.emailVerified,
+        isSuspended: user.isSuspended,
+      }));
+    } else {
+      setTradeRequests([]);
+      setNotifications(storageService.getNotifications());
+    }
+  });
+
+  // Real-time Firestore subscriptions for listings and rentals
+  const unsubscribeListings = storageService.subscribeToListings(
+    (realListings) => {
+      setListings(realListings);
+    }
+  );
+
+  const unsubscribeRentals = storageService.subscribeToRentalItems(
+    (realRentals) => {
+      setRentalItems(realRentals);
+    }
+  );
+
+  const handleOpenListing = () => {
+    handleOpenCreateListingModal();
+  };
+
+  window.addEventListener(
+    'campusloop:open-create-listing',
+    handleOpenListing
+  );
+
+  // Refresh email verification status when user returns to the tab
+  const handleWindowFocus = () => {
+    const user = authService.getCurrentUser();
+
+    if (user && !user.emailVerified) {
+      authService.checkEmailVerificationStatus().catch(() => {});
+    }
+  };
+
+  window.addEventListener('focus', handleWindowFocus);
+
+  return () => {
+    unsubscribeAuth();
+
+    if (unsubscribeNotifications) {
       unsubscribeNotifications();
-    };
-  }, [currentUser?.id, currentUser?.emailVerified, accountState]);
+    }
+
+    if (unsubscribeTrades) {
+      unsubscribeTrades();
+    }
+
+    unsubscribeListings();
+    unsubscribeRentals();
+
+    window.removeEventListener(
+      'campusloop:open-create-listing',
+      handleOpenListing
+    );
+
+    window.removeEventListener('focus', handleWindowFocus);
+  };
+}, []);
+
+
 
   // ==========================================
   // TRANSACTION GATEKEEPER
@@ -238,31 +257,33 @@ export default function App() {
 
   // Handlers for Auth Success and Sign Out
   const handleAuthSuccess = (user: UTMUser) => {
-    setCurrentUser(user);
-    setAccountState(user.accountState);
-    loadAllData();
-    addToast('success', 'UTM Verified', `Signed in as ${user.name} (${user.email})`);
-    
-    // Execute preserved intended action
-    if (pendingAction) {
-      const act = pendingAction;
-      setPendingAction(null);
-      setTimeout(() => act(), 150);
-    }
-  };
+  setCurrentUser(user);
+  setAccountState(authService.getAccountState());
+
+  loadAllData();
+
+  addToast(
+    'success',
+    'UTM Verified',
+    `Signed in as ${user.name} (${user.email})`
+  );
+
+  // Execute preserved intended action
+  if (pendingAction) {
+    const act = pendingAction;
+    setPendingAction(null);
+    setTimeout(() => act(), 150);
+  }
+};
 
   const handleSignOut = async () => {
     await authService.logout();
-    storageService.clearUserScopedLocalCache();
     setCurrentUser(null);
     setAccountState('Signed Out');
     
     // Requirement 6: Clear protected user data from interface
     setCart([]);
     setTradeRequests([]);
-    setNotifications([]);
-    setMeInitialSubTab(undefined);
-    setFocusedTradeRequestId(null);
     setActiveChatId(undefined);
     addToast('info', 'Signed Out', 'You have signed out. Protected personal data cleared from interface.');
   };
@@ -306,18 +327,43 @@ export default function App() {
   };
 
   // Cart Handover Checkout (Student-to-student peer request)
-  const handleCartCheckoutSubmit = async (
-    selectedItems: CartItem[],
-    handoverLocation: string,
-    preferredTime: string,
-    notes: string
-  ) => {
-    if (!ensureVerifiedUtmUser('submit purchase handover requests')) return;
+  
+const handleCartCheckoutSubmit = async (
+  selectedItems: CartItem[],
+  handoverLocation: string,
+  preferredTime: string,
+  notes: string
+) => {
+  if (!ensureVerifiedUtmUser('submit purchase handover requests')) return;
 
-    const effectiveName = currentUser?.name || userProfile.name;
-    const effectiveEmail = currentUser?.email || userProfile.email;
-    const effectiveId = currentUser?.id || 'uid';
+  if (!currentUser?.id) {
+    addToast(
+      'error',
+      'Unable to Submit Request',
+      'Please sign in again before submitting purchase requests.'
+    );
+    return;
+  }
 
+  const buyerId = currentUser.id;
+  const buyerName = currentUser.name || userProfile.name || 'UTM Student';
+  const buyerContact = currentUser.email || userProfile.email || '';
+
+  // Validate all seller IDs before creating any requests.
+  const invalidItem = selectedItems.find(
+    (item) => !item.listing.sellerId || item.listing.sellerId === buyerId
+  );
+
+  if (invalidItem) {
+    addToast(
+      'error',
+      'Unable to Submit Request',
+      `"${invalidItem.listing.title}" has an invalid seller account. Please contact support.`
+    );
+    return;
+  }
+
+  try {
     const createdRequests: TradeRequest[] = [];
 
     for (const item of selectedItems) {
@@ -326,51 +372,50 @@ export default function App() {
         listingTitle: item.listing.title,
         listingPrice: item.listing.price,
         listingImage: item.listing.imageUrl,
-        sellerId: item.listing.sellerId,
+        sellerId: item.listing.sellerId!,
         sellerName: item.listing.sellerName,
-        buyerId: effectiveId,
-        buyerName: effectiveName,
-        buyerContact: effectiveEmail || '',
+        buyerId,
+        buyerName,
+        buyerContact,
+        offeredPrice: item.listing.price * item.quantity,
         quantity: item.quantity,
-        offeredPrice: item.listing.price,
         totalPrice: item.listing.price * item.quantity,
         pickupLocation: handoverLocation,
         message: `${notes} (Qty: ${item.quantity}, Preferred Time: ${preferredTime})`,
-        status: 'Pending',
       });
-      createdRequests.push(newReq);
 
-      // Notify seller via direct message
-      storageService.sendChatMessage(
-        `chat-${item.listing.sellerName.toLowerCase().replace(/\s+/g, '-')}`,
-        `Hi ${item.listing.sellerName}! I submitted a handover request for "${item.listing.title}" at ${handoverLocation} (${preferredTime}).`,
-        effectiveId,
-        effectiveName,
-        {
-          id: item.listing.id,
-          title: item.listing.title,
-          price: item.listing.price,
-          imageUrl: item.listing.imageUrl,
-        }
-      );
+      createdRequests.push(newReq);
     }
 
     setTradeRequests((prev) => [
       ...createdRequests,
-      ...prev.filter((r) => !createdRequests.some((c) => c.id === r.id)),
+      ...prev.filter(
+        (request) =>
+          !createdRequests.some((created) => created.id === request.id)
+      ),
     ]);
 
     const updatedCart = storageService.clearSelectedCartItems();
     setCart(updatedCart);
-    setConversations(storageService.getChatConversations());
-    setNotifications(storageService.getNotifications());
 
     addToast(
       'success',
-      'Handover Request Sent!',
-      `Sent ${selectedItems.length} peer request(s). Track under Me > Buy Requests.`
+      'Handover Requests Sent!',
+      `Successfully submitted ${createdRequests.length} purchase request(s). Track them under Me > Buy Requests.`
     );
-  };
+  } catch (error) {
+    console.error('Cart checkout failed:', error);
+
+    addToast(
+      'error',
+      'Checkout Failed',
+      error instanceof Error
+        ? error.message
+        : 'Please check your requests before trying again.'
+    );
+  }
+};
+
 
   // --- FAVOURITES TOGGLE ---
   const handleToggleFavorite = (listingId: string) => {
@@ -545,23 +590,43 @@ export default function App() {
   };
 
   // --- PURCHASE / TRADE REQUEST FROM MODAL ---
-  const handleTradeRequestSubmit = async (requestData: any) => {
-    if (!ensureVerifiedUtmUser('submit purchase requests')) return;
+ 
+const handleTradeRequestSubmit = async (requestData: any) => {
+  if (!ensureVerifiedUtmUser('submit purchase requests')) return;
 
-    const buyerId = currentUser?.id || `utm-${Date.now()}`;
-    const buyerName = currentUser?.name || userProfile.name || 'UTM Student';
-    const buyerContact = currentUser?.email || userProfile.email || '';
+  if (!currentUser?.id) {
+    addToast(
+      'error',
+      'Unable to Submit Request',
+      'Please sign in again before submitting a purchase request.'
+    );
+    return;
+  }
 
+  const buyerId = currentUser.id;
+  const buyerName = currentUser.name || userProfile.name || 'UTM Student';
+  const buyerContact = currentUser.email || userProfile.email || '';
+
+  try {
     const newReq = await storageService.createTradeRequest({
       ...requestData,
       buyerId,
       buyerName,
       buyerContact,
     });
-    setTradeRequests((prev) => [newReq, ...prev.filter((r) => r.id !== newReq.id)]);
+
+    setTradeRequests((prev) => [
+      newReq,
+      ...prev.filter((r) => r.id !== newReq.id),
+    ]);
+
     setTradeModalListing(null);
 
-    const totalStr = (newReq.totalPrice || (newReq.offeredPrice * (newReq.quantity || 1))).toFixed(2);
+    const totalStr = (
+      newReq.totalPrice ||
+      newReq.offeredPrice * (newReq.quantity || 1)
+    ).toFixed(2);
+
     storageService.sendChatMessage(
       `chat-${newReq.sellerName.toLowerCase().replace(/\s+/g, '-')}`,
       `Hi ${newReq.sellerName}! I requested to buy ${newReq.quantity || 1}x "${newReq.listingTitle}" (Total: RM ${totalStr}). Handover spot: ${newReq.pickupLocation}.`,
@@ -574,15 +639,27 @@ export default function App() {
         imageUrl: newReq.listingImage,
       }
     );
+
     setConversations(storageService.getChatConversations());
-    setNotifications(storageService.getNotifications());
 
     addToast(
       'success',
       'Purchase Request Sent!',
       `Requested ${newReq.quantity || 1}x "${newReq.listingTitle}" from ${newReq.sellerName}. View in Me > Buy Requests.`
     );
-  };
+  } catch (error) {
+    console.error('Purchase request submission failed:', error);
+
+    addToast(
+      'error',
+      'Purchase Request Failed',
+      error instanceof Error
+        ? error.message
+        : 'Please try again. If the request was already saved, do not submit it again.'
+    );
+  }
+};
+
 
   const handleUpdateTradeStatus = (requestId: string, status: RequestStatus) => {
     if (!ensureVerifiedUtmUser('update trade status')) return;
@@ -593,16 +670,64 @@ export default function App() {
     });
     addToast('info', `Status Updated: ${status}`, 'Trade status updated.');
   };
+// Seller ONLY: Accept a pending purchase offer and notify the buyer.
+const handleAcceptPurchaseOffer = async (requestId: string) => {
+  if (!ensureVerifiedUtmUser('accept purchase offer')) {
+    throw new Error('Please sign in with your verified UTM account before accepting this offer.');
+  }
 
-  // Buyer submits payment screenshot
-  const handleSubmitPaymentProof = async (requestId: string, proofUrl: string, method: string) => {
-    if (!ensureVerifiedUtmUser('submit payment proof')) return;
+  try {
+    const updated = await storageService.acceptPurchaseOffer(requestId);
 
-    const updated = await storageService.submitPaymentProof(requestId, proofUrl, method);
-    if (updated) {
-      setTradeRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)));
-      setNotifications(storageService.getNotifications());
-      addToast('success', 'Payment Proof Submitted!', 'Your receipt is now under review by the seller.');
+    setTradeRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? updated : r))
+    );
+
+    addToast(
+      'success',
+      'Offer Accepted!',
+      'The buyer has been notified. You can now arrange payment in Chat.'
+    );
+  } catch (error) {
+    console.error('Accept purchase offer failed:', error);
+
+    addToast(
+      'error',
+      'Unable to Accept Offer',
+      error instanceof Error ? error.message : 'Please try again.'
+    );
+
+    throw error;
+  }
+};
+
+  
+  // Buyer declares payment made outside CampusLoop
+  const handleDeclarePaymentMade = async (requestId: string, method: string) => {
+    if (!ensureVerifiedUtmUser('declare payment')) return;
+
+    try {
+      const updated = await storageService.declarePaymentMade(requestId, method);
+
+      if (updated) {
+        setTradeRequests((prev) =>
+          prev.map((r) => (r.id === requestId ? updated : r))
+        );
+
+        addToast(
+          'success',
+          'Payment Declaration Sent',
+          'The seller has been notified. They must independently check their account before confirming receipt.'
+        );
+      }
+    } catch (error) {
+      console.error('Payment declaration failed:', error);
+
+      addToast(
+        'error',
+        'Payment Declaration Failed',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
     }
   };
 
@@ -754,7 +879,7 @@ export default function App() {
         ownerId: effectiveId,
         ownerName: effectiveName,
         ownerContact: effectiveEmail,
-        ownerAvatar: currentUser?.avatarUrl,
+        ownerAvatar: currentUser?.avatarUrl || '',
         isUserCreated: true,
       });
       addToast('success', 'Rental Listed!', `"${created.name}" is now available for students to rent.`);
@@ -892,48 +1017,20 @@ export default function App() {
   };
 
   // --- NOTIFICATION HANDLERS ---
-  const handleMarkNotificationRead = (id: string) => {
-    const updated = storageService.markNotificationAsRead(id);
-    setNotifications(updated);
-  };
+  const handleMarkNotificationRead = async (id: string) => {
+  const updated = await storageService.markNotificationAsRead(id);
+  setNotifications(updated);
+};
 
-  const handleMarkAllNotificationsRead = () => {
-    const updated = storageService.markAllNotificationsAsRead();
-    setNotifications(updated);
-  };
+const handleMarkAllNotificationsRead = async () => {
+  const updated = await storageService.markAllNotificationsAsRead();
+  setNotifications(updated);
+};
 
-  const handleClearAllNotifications = () => {
-    const updated = storageService.clearAllNotifications();
-    setNotifications(updated);
-  };
-
-  const handleSelectNotification = (notification: CampusNotification) => {
-    handleMarkNotificationRead(notification.id);
-    setIsNotificationDrawerOpen(false);
-
-    const targetTab = (notification.linkTab || 'me') as NavTab;
-    if (targetTab === 'home' || targetTab === 'cart' || targetTab === 'mall' || targetTab === 'rent' || targetTab === 'chat' || targetTab === 'me') {
-      setActiveTab(targetTab);
-    } else {
-      setActiveTab('me');
-    }
-
-    const inferredSubTab =
-      notification.subTab ||
-      (notification.type === 'purchase_request'
-        ? 'sales'
-        : notification.type === 'purchase_request_sent'
-          ? 'purchases'
-          : undefined);
-
-    if (inferredSubTab) {
-      setMeInitialSubTab(inferredSubTab);
-    }
-    if (notification.relatedRequestId) {
-      setFocusedTradeRequestId(notification.relatedRequestId);
-    }
-  };
-
+const handleClearAllNotifications = async () => {
+  const updated = await storageService.clearAllNotifications();
+  setNotifications(updated);
+};
   // Profile update
   const handleUpdateProfile = (updated: Partial<UserProfile>) => {
     const next = { ...userProfile, ...updated };
@@ -941,13 +1038,7 @@ export default function App() {
     storageService.updateUserProfile(next);
   };
 
-  // Reset Prototype Data
-  const handleResetData = () => {
-    storageService.resetPrototypeData();
-    loadAllData();
-    addToast('info', 'Marketplace Cleared', 'Marketplace data reset. Ready for genuine student listings.');
-  };
-
+  
   // Navigate to Mall with specific category
   const handleNavigateMall = (category: Category = 'All') => {
     setMallCategory(category);
@@ -1057,9 +1148,6 @@ export default function App() {
             savedListings={savedListings}
             rentalItems={rentalItems}
             rentalRequests={rentalRequests}
-            initialSubTab={meInitialSubTab}
-            focusedTradeRequestId={focusedTradeRequestId}
-            onClearFocusedTradeRequest={() => setFocusedTradeRequestId(null)}
             onSelectListing={(item) => setDetailModalListing(item)}
             onSelectRentalItem={(item) => setSelectedRentalItem(item)}
             onOpenCreateModal={handleOpenCreateListingModal}
@@ -1089,13 +1177,13 @@ export default function App() {
             onConfirmReturn={handleConfirmReturn}
             onRemoveFavorite={handleToggleFavorite}
             onUpdateProfile={handleUpdateProfile}
-            onResetData={handleResetData}
             onSignOut={handleSignOut}
             onOpenAuthModal={() => handleOpenAuthModal('login')}
             onDeleteListing={handleDeleteListing}
             onEditListing={handleEditListing}
-            onSubmitPaymentProof={handleSubmitPaymentProof}
+            onDeclarePaymentMade={handleDeclarePaymentMade}
             onApproveTransaction={handleApproveTransaction}
+            onAcceptPurchaseOffer={handleAcceptPurchaseOffer}
             onRejectPaymentProof={handleRejectPaymentProof}
             onCompleteTransaction={handleCompleteTransaction}
             onStartChat={(sellerName) => handleStartChat(sellerName)}
@@ -1135,7 +1223,6 @@ export default function App() {
       {tradeModalListing && (
         <TradeRequestModal
           listing={tradeModalListing}
-          currentUserId={currentUser?.id}
           currentUserName={currentUser?.name || userProfile.name}
           currentUserEmail={currentUser?.email || userProfile.email}
           onClose={() => setTradeModalListing(null)}
@@ -1216,7 +1303,6 @@ export default function App() {
         onMarkAsRead={handleMarkNotificationRead}
         onMarkAllAsRead={handleMarkAllNotificationsRead}
         onClearAll={handleClearAllNotifications}
-        onSelectNotification={handleSelectNotification}
         onNavigateTab={(tab) => {
           if (tab === 'rent' || tab === 'me' || tab === 'chat' || tab === 'mall' || tab === 'cart') {
             setActiveTab(tab as any);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   ShieldCheck, 
   Mail, 
@@ -20,7 +20,7 @@ export interface ProfileViewProps {
   onRoleChange: (role: UserRole) => void;
   onSelectListing: (listing: Listing) => void;
   onReportReview: (reviewId: string) => void;
-  onResetData: () => void;
+  
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -32,9 +32,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onRoleChange,
   onSelectListing,
   onReportReview,
-  onResetData,
+  
 }) => {
-  const [resetDone, setResetDone] = useState(false);
+  
 
   // Reviews where current user is the reviewee
   const myReviews = reviews.filter((r) => r.revieweeName === profile.name);
@@ -42,13 +42,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     ? (myReviews.reduce((sum, r) => sum + r.rating, 0) / myReviews.length).toFixed(1)
     : 'New';
 
-  const handleResetClick = () => {
-    if (window.confirm('Reset all prototype listings, trade requests, chats, budget entries, and reviews back to fresh sample data?')) {
-      onResetData();
-      setResetDone(true);
-      setTimeout(() => setResetDone(false), 2500);
-    }
-  };
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 text-left">
@@ -285,19 +278,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      {/* Reset Prototype Data Button */}
-      <div className="bg-slate-50 rounded-2xl border border-slate-200/80 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-        <div className="text-slate-500">
-          Want a clean demonstration state? Reset all listings, trade offers, chat logs, budget entries, and reviews to fresh sample data.
-        </div>
-        <button
-          onClick={handleResetClick}
-          className="flex items-center gap-1.5 px-4 py-2 font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors shadow-2xs"
-        >
-          {resetDone ? <Check className="w-4 h-4 text-emerald-600" /> : <RotateCcw className="w-4 h-4" />}
-          <span>{resetDone ? 'Data Reset Complete!' : 'Reset All Sample Data'}</span>
-        </button>
-      </div>
-    </div>
+          </div>
   );
+
 };

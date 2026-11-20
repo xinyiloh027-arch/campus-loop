@@ -33,12 +33,12 @@ import {
   getDocs, 
   addDoc, 
   updateDoc, 
-  deleteDoc, 
+  deleteDoc,
+  deleteField,
   query, 
   where, 
   orderBy, 
   onSnapshot,
-  serverTimestamp,
   runTransaction,
   handleFirestoreError,
   OperationType
@@ -92,74 +92,6 @@ function calculateRentalDays(startDate: string, returnDate: string): number {
   const returnUtc = Date.UTC(ry, rm - 1, rd);
   const diffDays = Math.round((returnUtc - startUtc) / 86400000);
   return Math.max(1, diffDays);
-}
-
-function normalizeIsoTimestamp(value: any): string {
-  if (!value) return new Date().toISOString();
-  if (typeof value === 'string') return value;
-  if (typeof value?.toDate === 'function') {
-    try {
-      return value.toDate().toISOString();
-    } catch {
-      return new Date().toISOString();
-    }
-  }
-  if (typeof value?.seconds === 'number') {
-    return new Date(value.seconds * 1000).toISOString();
-  }
-  return new Date().toISOString();
-}
-
-function formatNotificationTime(isoOrText: any): string {
-  const iso = normalizeIsoTimestamp(isoOrText);
-  const parsed = Date.parse(iso);
-  if (Number.isNaN(parsed)) return typeof isoOrText === 'string' ? isoOrText : 'Just now';
-  return new Date(parsed).toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function stripUndefinedDeep(value: any): any {
-  if (value === undefined || value === null) return value;
-  if (Array.isArray(value)) {
-    return value
-      .filter((item) => item !== undefined)
-      .map((item) => stripUndefinedDeep(item));
-  }
-  if (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-    const cleanObj: Record<string, any> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (v !== undefined) {
-        cleanObj[k] = stripUndefinedDeep(v);
-      }
-    }
-    return cleanObj;
-  }
-  return value;
-}
-
-function sanitizeFirestoreFields(
-  obj: Record<string, any>,
-  omitKeys: string[] = [],
-  options: { preserveNull?: boolean } = {}
-): Record<string, any> {
-  const { preserveNull = false } = options;
-  const clean: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (omitKeys.includes(key)) continue;
-    if (value === undefined) continue;
-    if (value === null) {
-      if (preserveNull) {
-        clean[key] = null;
-      }
-      continue;
-    }
-    clean[key] = stripUndefinedDeep(value);
-  }
-  return clean;
 }
 
 export const storageService = {
@@ -290,24 +222,19 @@ export const storageService = {
   },
 
   async updateListing(id: string, updates: Partial<Listing>): Promise<Listing | null> {
-    const cleanUpdates = sanitizeFirestoreFields(
-      updates as Record<string, any>,
-      ['id', 'sellerId', 'createdAt', 'isUserCreated'],
-      { preserveNull: true }
-    );
     const current = this.getListings();
     let updatedItem: Listing | null = null;
     const updated = current.map(item => {
       if (item.id === id) {
-        const origQty = typeof cleanUpdates.originalQuantity === 'number' 
-          ? Math.max(1, Math.floor(cleanUpdates.originalQuantity)) 
+        const origQty = typeof updates.originalQuantity === 'number' 
+          ? Math.max(1, Math.floor(updates.originalQuantity)) 
           : (item.originalQuantity || 1);
         
-        let remQty = typeof cleanUpdates.remainingQuantity === 'number'
-          ? Math.max(0, Math.floor(cleanUpdates.remainingQuantity))
+        let remQty = typeof updates.remainingQuantity === 'number'
+          ? Math.max(0, Math.floor(updates.remainingQuantity))
           : (item.remainingQuantity !== undefined ? item.remainingQuantity : origQty);
 
-        let newStatus = cleanUpdates.status || item.status;
+        let newStatus = updates.status || item.status;
         if (remQty === 0) {
           newStatus = 'Sold';
         } else if (newStatus === 'Sold' && remQty > 0) {
@@ -316,7 +243,7 @@ export const storageService = {
 
         updatedItem = {
           ...item,
-          ...cleanUpdates,
+          ...updates,
           originalQuantity: origQty,
           remainingQuantity: remQty,
           status: newStatus,
@@ -326,26 +253,10 @@ export const storageService = {
       return item;
     });
 
-    const resolvedUpdatedItem = updated.find((item) => item.id === id) || null;
-
     const { auth, db } = initFirebase();
-    if (db && auth?.currentUser) {
+    if (db && auth?.currentUser && updatedItem) {
       try {
-        const firestoreUpdates = sanitizeFirestoreFields(
-          {
-            ...cleanUpdates,
-            ...(resolvedUpdatedItem
-              ? {
-                  originalQuantity: resolvedUpdatedItem.originalQuantity,
-                  remainingQuantity: resolvedUpdatedItem.remainingQuantity,
-                  status: resolvedUpdatedItem.status,
-                }
-              : {}),
-          },
-          ['id', 'sellerId', 'createdAt', 'isUserCreated'],
-          { preserveNull: true }
-        );
-        await updateDoc(doc(db, 'listings', id), firestoreUpdates);
+        await updateDoc(doc(db, 'listings', id), updatedItem);
       } catch (err) {
         console.warn('Firestore listing update warning:', err);
       }
@@ -435,133 +346,171 @@ export const storageService = {
     return () => {};
   },
 
-  async fetchTradeRequests(userId?: string): Promise<TradeRequest[]> {
-    const { auth, db } = initFirebase();
-    const activeUid = userId || auth?.currentUser?.uid;
-    if (!activeUid) {
-      this.saveTradeRequests([]);
-      return [];
-    }
+  
 
-    if (db && auth?.currentUser && auth.currentUser.uid === activeUid && auth.currentUser.emailVerified) {
-      try {
-        const [buyerSnap, sellerSnap] = await Promise.all([
-          getDocs(query(collection(db, 'trades'), where('buyerId', '==', activeUid))),
-          getDocs(query(collection(db, 'trades'), where('sellerId', '==', activeUid))),
-        ]);
+subscribeToTradeRequests(callback: (trades: TradeRequest[]) => void): () => void {
+  const { auth, db } = initFirebase();
+  const currentUser = auth?.currentUser;
 
-        const merged = new Map<string, TradeRequest>();
-        const ingest = (docSnap: any) => {
-          const data = docSnap.data();
-          const createdIso = normalizeIsoTimestamp(data.createdAt);
-          merged.set(docSnap.id, {
-            ...(data as any),
-            id: docSnap.id,
-            createdAt: createdIso,
-            isSentByCurrentUser: data.buyerId === activeUid,
-          });
-        };
-
-        buyerSnap.forEach(ingest);
-        sellerSnap.forEach(ingest);
-
-        const items = Array.from(merged.values()).sort(
-          (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-        );
-        this.saveTradeRequests(items);
-        return items;
-      } catch (err) {
-        console.warn('Firestore fetchTradeRequests warning:', err);
-      }
-    }
-    return this.getTradeRequests();
-  },
-
-  subscribeToTradeRequests(
-    userIdOrCallback: string | ((trades: TradeRequest[]) => void) | undefined,
-    maybeCallback?: (trades: TradeRequest[]) => void
-  ): () => void {
-    const callback = typeof userIdOrCallback === 'function' ? userIdOrCallback : maybeCallback;
-    const requestedUid = typeof userIdOrCallback === 'string' ? userIdOrCallback : undefined;
-    if (!callback) return () => {};
-
-    const { auth, db } = initFirebase();
-    const activeUid = requestedUid || auth?.currentUser?.uid;
-
-    if (!activeUid) {
-      this.saveTradeRequests([]);
-      callback([]);
-      return () => {};
-    }
-
-    if (db && auth?.currentUser && auth.currentUser.uid === activeUid && auth.currentUser.emailVerified) {
-      try {
-        const buyerMap = new Map<string, TradeRequest>();
-        const sellerMap = new Map<string, TradeRequest>();
-
-        const emitMerged = () => {
-          const merged = new Map<string, TradeRequest>();
-          buyerMap.forEach((v, k) => merged.set(k, v));
-          sellerMap.forEach((v, k) => merged.set(k, v));
-          const items = Array.from(merged.values()).sort(
-            (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-          );
-          this.saveTradeRequests(items);
-          callback(items);
-        };
-
-        const mapSnapshotDoc = (docSnap: any): TradeRequest => {
-          const data = docSnap.data();
-          return {
-            ...(data as any),
-            id: docSnap.id,
-            createdAt: normalizeIsoTimestamp(data.createdAt),
-            isSentByCurrentUser: data.buyerId === activeUid,
-          };
-        };
-
-        const unsubBuyer = onSnapshot(
-          query(collection(db, 'trades'), where('buyerId', '==', activeUid)),
-          (snapshot) => {
-            buyerMap.clear();
-            snapshot.forEach((docSnap) => {
-              buyerMap.set(docSnap.id, mapSnapshotDoc(docSnap));
-            });
-            emitMerged();
-          },
-          (err) => {
-            console.warn('Firestore buyer trades subscription fallback:', err);
-            callback(this.getTradeRequests());
-          }
-        );
-
-        const unsubSeller = onSnapshot(
-          query(collection(db, 'trades'), where('sellerId', '==', activeUid)),
-          (snapshot) => {
-            sellerMap.clear();
-            snapshot.forEach((docSnap) => {
-              sellerMap.set(docSnap.id, mapSnapshotDoc(docSnap));
-            });
-            emitMerged();
-          },
-          (err) => {
-            console.warn('Firestore seller trades subscription fallback:', err);
-            callback(this.getTradeRequests());
-          }
-        );
-
-        return () => {
-          unsubBuyer();
-          unsubSeller();
-        };
-      } catch (e) {
-        console.warn('Firestore trades query error:', e);
-      }
-    }
-
-    callback(this.getTradeRequests());
+  if (!db || !currentUser) {
+    callback([]);
     return () => {};
-  },
+  }
+
+  const buyerTrades = new Map<string, TradeRequest>();
+  const sellerTrades = new Map<string, TradeRequest>();
+
+  const emitTrades = () => {
+    const combined = new Map<string, TradeRequest>();
+
+    buyerTrades.forEach((trade, id) => {
+      combined.set(id, {
+        ...trade,
+        isSentByCurrentUser: true,
+      });
+    });
+
+    sellerTrades.forEach((trade, id) => {
+      combined.set(id, {
+        ...trade,
+        isSentByCurrentUser: false,
+      });
+    });
+
+    const items = Array.from(combined.values());
+
+    items.sort(
+      (a, b) =>
+        new Date(b.createdAt || 0).getTime() -
+        new Date(a.createdAt || 0).getTime()
+    );
+
+    localStorage.setItem(REQUESTS_KEY, JSON.stringify(items));
+    callback(items);
+  };
+
+  try {
+    // Listen only to requests sent by the current user.
+    const buyerQuery = query(
+      collection(db, 'trades'),
+      where('buyerId', '==', currentUser.uid)
+    );
+
+    // Listen only to requests received by the current user.
+    const sellerQuery = query(
+      collection(db, 'trades'),
+      where('sellerId', '==', currentUser.uid)
+    );
+
+    const unsubscribeBuyer = onSnapshot(
+      buyerQuery,
+      (snapshot) => {
+        buyerTrades.clear();
+
+        snapshot.forEach((docSnap) => {
+          buyerTrades.set(docSnap.id, {
+            ...(docSnap.data() as TradeRequest),
+            id: docSnap.id,
+          });
+        });
+
+        emitTrades();
+      },
+      (err) => {
+        console.error('Buyer trade subscription failed:', err);
+      }
+    );
+
+    const unsubscribeSeller = onSnapshot(
+      sellerQuery,
+      (snapshot) => {
+        sellerTrades.clear();
+
+        snapshot.forEach((docSnap) => {
+          sellerTrades.set(docSnap.id, {
+            ...(docSnap.data() as TradeRequest),
+            id: docSnap.id,
+          });
+        });
+
+        emitTrades();
+      },
+      (err) => {
+        console.error('Seller trade subscription failed:', err);
+      }
+    );
+
+    return () => {
+      unsubscribeBuyer();
+      unsubscribeSeller();
+    };
+  } catch (error) {
+    console.error('Failed to subscribe to trade requests:', error);
+    callback([]);
+    return () => {};
+  }
+},
+
+
+subscribeToNotifications(callback: (notifications: CampusNotification[]) => void): () => void {
+  const { auth, db } = initFirebase();
+  const currentUser = auth?.currentUser;
+
+  if (!db || !currentUser) {
+    callback([]);
+    return () => {};
+  }
+
+  try {
+    const q = query(
+      collection(db, 'notifications'),
+      where('recipientId', '==', currentUser.uid)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const remoteNotifications: CampusNotification[] = [];
+
+        snapshot.forEach((docSnap) => {
+          remoteNotifications.push({
+            ...(docSnap.data() as CampusNotification),
+            id: docSnap.id,
+          });
+        });
+
+        remoteNotifications.sort(
+          (a, b) =>
+            new Date(b.createdAt || 0).getTime() -
+            new Date(a.createdAt || 0).getTime()
+        );
+
+        const localNotifications = this.getNotifications();
+
+        const merged = [
+          ...remoteNotifications,
+          ...localNotifications.filter(
+            (local) =>
+              !remoteNotifications.some((remote) => remote.id === local.id)
+          ),
+        ];
+
+        callback(merged);
+      },
+      (err) => {
+        console.error('Firestore notifications subscription failed:', err);
+      }
+    );
+
+    return unsubscribe;
+  } catch (err) {
+    console.error('Failed to subscribe to Firestore notifications:', err);
+    callback(this.getNotifications());
+    return () => {};
+  }
+},
+
+
 
   // --- RENTAL ITEMS ---
   getRentalItems(): RentalItem[] {
@@ -736,413 +685,631 @@ export const storageService = {
     return requests;
   },
 
+
   async createTradeRequest(data: Omit<TradeRequest, 'id' | 'createdAt' | 'status' | 'isSentByCurrentUser'> & {
     quantity?: number;
     totalPrice?: number;
     status?: RequestStatus;
   }): Promise<TradeRequest> {
-    const qty = typeof data.quantity === 'number' && data.quantity > 0 ? Math.floor(data.quantity) : 1;
-    const unitPrice = typeof data.offeredPrice === 'number' ? data.offeredPrice : data.listingPrice;
-    const total = typeof data.totalPrice === 'number' ? data.totalPrice : unitPrice * qty;
-
     const { auth, db } = initFirebase();
-    const currentUser = auth?.currentUser;
+    const firebaseUser = auth?.currentUser;
 
-    // Require verified Firebase Auth user when Firebase is initialized
-    if (db) {
-      if (!currentUser) {
-        throw new Error('You must sign in with your UTM account before submitting a purchase request.');
-      }
-      if (!currentUser.emailVerified) {
-        throw new Error('Please verify your UTM email before submitting a purchase request.');
-      }
+    if (!db || !firebaseUser) {
+      throw new Error('You must be signed in to submit a purchase request.');
     }
 
-    const buyerId = currentUser?.uid || data.buyerId;
-    if (!buyerId) {
-      throw new Error('Authenticated buyer ID is required.');
+    if (!firebaseUser.emailVerified) {
+      throw new Error('Please verify your UTM email before submitting a purchase request.');
     }
 
-    // Resolve authoritative sellerId from Firestore listing doc first, then payload or local cache
-    let resolvedSellerId = data.sellerId;
-    if (db && data.listingId) {
-      try {
-        const listingSnap = await getDoc(doc(db, 'listings', data.listingId));
-        if (listingSnap.exists()) {
-          const firestoreSellerId = (listingSnap.data() as any).sellerId;
-          if (firestoreSellerId) {
-            resolvedSellerId = firestoreSellerId;
-          }
-        }
-      } catch (err) {
-        console.warn('Could not fetch listing sellerId from Firestore:', err);
-      }
-    }
-    if (!resolvedSellerId && data.listingId) {
-      const localListing = this.getListings().find((l) => l.id === data.listingId);
-      if (localListing?.sellerId) {
-        resolvedSellerId = localListing.sellerId;
-      }
+    if (data.buyerId !== firebaseUser.uid) {
+      throw new Error('Your account could not be verified. Please sign in again.');
     }
 
-    if (!resolvedSellerId) {
-      throw new Error('Seller information is missing for this product. Please refresh and try again.');
+    if (!data.sellerId || data.sellerId === firebaseUser.uid) {
+      throw new Error('Invalid seller account. Please refresh the listing and try again.');
     }
 
-    if (resolvedSellerId === buyerId) {
-      throw new Error('You cannot submit a purchase request for your own product.');
-    }
+    const qty =
+      typeof data.quantity === 'number' && data.quantity > 0
+        ? Math.floor(data.quantity)
+        : 1;
 
-    const initialStatus: RequestStatus =
-      data.status === 'Pending Seller Response' || data.status === 'Pending'
-        ? data.status
-        : 'Pending';
-
-    const tradeCol = db ? collection(db, 'trades') : null;
-    const docRef = tradeCol ? doc(tradeCol) : null;
-    const finalId = docRef ? docRef.id : `req-${Date.now()}`;
-    const localIsoNow = new Date().toISOString();
+    const total =
+      typeof data.totalPrice === 'number'
+        ? data.totalPrice
+        : data.offeredPrice * qty;
 
     const newRequest: TradeRequest = {
       ...data,
-      id: finalId,
-      buyerId,
-      sellerId: resolvedSellerId,
-      offeredPrice: unitPrice,
+      id: '',
+      createdAt: new Date().toISOString(),
       quantity: qty,
       totalPrice: total,
-      status: initialStatus,
-      createdAt: localIsoNow,
+      status: data.status || 'Pending Seller Response',
       isSentByCurrentUser: true,
     };
 
-    if (db && docRef && currentUser) {
-      // Never write client-perspective isSentByCurrentUser into shared Firestore trade documents
-      const firestorePayload = sanitizeFirestoreFields(
-        {
-          id: finalId,
-          listingId: data.listingId,
-          listingTitle: data.listingTitle,
-          listingPrice: data.listingPrice,
-          listingImage: data.listingImage,
-          sellerId: resolvedSellerId,
-          sellerName: data.sellerName,
-          buyerId,
-          buyerName: data.buyerName,
-          buyerContact: data.buyerContact,
-          offeredPrice: unitPrice,
-          pickupLocation: data.pickupLocation,
-          message: data.message || '',
-          status: initialStatus,
-          quantity: qty,
-          totalPrice: total,
-          createdAt: serverTimestamp(),
-        },
-        ['isSentByCurrentUser']
-      );
+    // STEP 1: Save the actual purchase request to Firestore.
+    const tradeRef = doc(collection(db, 'trades'));
+    newRequest.id = tradeRef.id;
 
-      // Step 1: Write trade document FIRST so /notifications rules can verify exists(/trades/{tradeId})
-      try {
-        await currentUser.getIdToken(true);
-        await setDoc(docRef, firestorePayload);
-      } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, `trades/${finalId}`);
-      }
+    await setDoc(tradeRef, newRequest);
 
-      // Step 2: Sequentially notify the seller (User B)
-      await this.createFirestoreNotification({
-        recipientId: resolvedSellerId,
-        senderId: buyerId,
-        buyerId,
-        sellerId: resolvedSellerId,
+    // STEP 2: Notify the actual seller after the trade has been saved.
+    try {
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: newRequest.sellerId,
+        senderId: firebaseUser.uid,
+        buyerId: firebaseUser.uid,
+        sellerId: newRequest.sellerId,
         type: 'purchase_request',
-        title: 'New Purchase Request',
-        message: `${data.buyerName} has requested to purchase ${qty}x "${data.listingTitle}" (Total: RM ${total.toFixed(2)}).`,
-        relatedRequestId: finalId,
-        relatedListingId: data.listingId,
+        title: 'New Purchase Request!',
+        message: `${newRequest.buyerName} requested to buy ${qty}x "${newRequest.listingTitle}" for RM ${total.toFixed(2)}. (Ref #${newRequest.id.slice(-6)})`,
+        isRead: false,
+        read: false,
+        createdAt: new Date().toISOString(),
+        relatedRequestId: newRequest.id,
+        relatedListingId: newRequest.listingId,
         linkTab: 'me',
-        subTab: 'sales',
-      }).catch((notifErr) => {
-        console.error('Failed to deliver seller notification in Firestore (ensure /firestore.rules are deployed):', notifErr);
       });
+    } catch (notificationError) {
+      console.error('Seller notification delivery failed:', notificationError);
 
-      // Step 3: Sequentially create buyer confirmation notification (User A)
-      await this.createFirestoreNotification({
-        recipientId: buyerId,
-        senderId: buyerId,
-        buyerId,
-        sellerId: resolvedSellerId,
-        type: 'purchase_request_sent',
-        title: 'Purchase Request Sent',
-        message: `Your purchase request for ${qty}x "${data.listingTitle}" (Total: RM ${total.toFixed(2)}) was sent to ${data.sellerName}.`,
-        relatedRequestId: finalId,
-        relatedListingId: data.listingId,
-        linkTab: 'me',
-        subTab: 'purchases',
-      }).catch((notifErr) => {
-        console.warn('Buyer confirmation notification write warning:', notifErr);
-      });
-    } else {
-      // Offline / non-Firebase fallback only
-      this.addCampusNotification(
-        'Purchase Request Sent',
-        `Your purchase request for ${qty}x "${data.listingTitle}" (Total: RM ${total.toFixed(2)}) was recorded locally.`,
-        'purchase_request_sent',
-        'me'
+      throw new Error(
+        `Your purchase request was saved, but the seller notification could not be delivered. Please contact the seller before submitting again.`
       );
     }
 
+    // STEP 3: Update the buyer's local request list.
     const current = this.getTradeRequests();
-    const updated = [newRequest, ...current.filter((item) => item.id !== finalId)];
+    const updated = [
+      newRequest,
+      ...current.filter((request) => request.id !== newRequest.id),
+    ];
+
     this.saveTradeRequests(updated);
+
+    this.addCampusNotification(
+      'Purchase Request Sent!',
+      `Your request for "${newRequest.listingTitle}" was submitted successfully.`,
+      'purchase_request_sent',
+      'me'
+    );
 
     return newRequest;
   },
 
-  async updateTradeRequestStatus(requestId: string, status: TradeRequest['status'], extra?: Partial<TradeRequest>): Promise<TradeRequest[]> {
-    const cleanExtra = sanitizeFirestoreFields(
-      (extra || {}) as Record<string, any>,
-      ['id', 'buyerId', 'sellerId', 'listingId', 'createdAt', 'offeredPrice', 'quantity', 'totalPrice', 'isSentByCurrentUser'],
-      { preserveNull: true }
-    );
-    const { auth, db } = initFirebase();
+  
+  
+  async updateTradeRequestStatus(
+    requestId: string,
+    status: TradeRequest['status'],
+    extra?: Partial<TradeRequest>,
+    requireRemote = false
+  ): Promise<TradeRequest[]> {
+    const current = this.getTradeRequests();
+    const target = current.find(req => req.id === requestId);
 
-    if (db && auth?.currentUser) {
+    if (!target) {
+      throw new Error('Purchase request not found.');
+    }
+
+    const { auth, db } = initFirebase();
+    const isSignedIn = !!auth?.currentUser;
+
+    if (requireRemote && (!db || !isSignedIn)) {
+      throw new Error(
+        'Unable to connect to the database. Please sign in again and retry.'
+      );
+    }
+
+    if (db && isSignedIn) {
+      const firestoreUpdates: Record<string, any> = { status };
+
+      for (const [key, value] of Object.entries(extra || {})) {
+        if (value !== undefined) {
+          firestoreUpdates[key] = value;
+        }
+      }
+
+      if (status === 'Payment Under Review') {
+        firestoreUpdates.rejectionReason = deleteField();
+      }
+
       try {
-        await updateDoc(doc(db, 'trades', requestId), { status, ...cleanExtra });
+        await updateDoc(doc(db, 'trades', requestId), firestoreUpdates);
       } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `trades/${requestId}`);
+        console.error('Firestore trade status update failed:', err);
+        throw new Error(
+          'Your transaction could not be updated in the database. Please try again.'
+        );
       }
     }
 
-    const current = this.getTradeRequests();
-    let updatedReq: TradeRequest | null = null;
+    const cleanExtra = Object.fromEntries(
+      Object.entries(extra || {}).filter(([, value]) => value !== undefined)
+    );
 
-    const updated = current.map((req) => {
-      if (req.id === requestId) {
-        updatedReq = { ...req, status, ...cleanExtra };
-        return updatedReq;
+    const updated = current.map(req => {
+      if (req.id !== requestId) return req;
+
+      const updatedReq = { ...req };
+
+      if (status === 'Payment Under Review') {
+        delete updatedReq.rejectionReason;
       }
-      return req;
+
+      return {
+        ...updatedReq,
+        ...cleanExtra,
+        status
+      };
     });
 
     this.saveTradeRequests(updated);
 
-    if (updatedReq && db && auth?.currentUser) {
-      const targetReq = updatedReq as TradeRequest;
-      const currentUid = auth.currentUser.uid;
-      if (status === 'Rejected' && targetReq.buyerId && targetReq.sellerId === currentUid) {
-        await this.createFirestoreNotification({
-          recipientId: targetReq.buyerId,
-          senderId: currentUid,
-          buyerId: targetReq.buyerId,
-          sellerId: targetReq.sellerId,
-          type: 'purchase_request',
-          title: 'Purchase Request Declined',
-          message: `Your request for "${targetReq.listingTitle}" was declined by ${targetReq.sellerName}.`,
-          relatedRequestId: targetReq.id,
-          relatedListingId: targetReq.listingId,
-          linkTab: 'me',
-          subTab: 'purchases',
-        }).catch((err) => console.warn('Decline notification warning:', err));
-      }
+    if (status === 'Accepted' || status === 'Approved') {
+      this.addCampusNotification(
+        'Purchase Request Approved!',
+        `The seller approved your purchase for "${target.listingTitle}". Coordinate campus meetup in Chat!`,
+        'trade_request',
+        'chat'
+      );
+    } else if (status === 'Rejected') {
+      this.addCampusNotification(
+        'Purchase Request Declined',
+        `Your request for "${target.listingTitle}" was declined by the seller.`,
+        'trade_request',
+        'mall'
+      );
+    } else if (status === 'Payment Proof Rejected') {
+      this.addCampusNotification(
+        'Payment Proof Needs Revision',
+        `Payment proof for "${target.listingTitle}" was rejected: ${extra?.rejectionReason || 'Please upload a clear screenshot.'}`,
+        'trade_request',
+        'me'
+      );
     }
+
+    return updated;
+  },
+
+
+
+   
+  
+  /**
+   * Seller ONLY: Accept a pending purchase offer.
+   * Atomically updates the trade and notifies the actual buyer.
+   * Does NOT deduct stock or confirm payment.
+   */
+  async acceptPurchaseOffer(
+    requestId: string
+  ): Promise<TradeRequest> {
+    const { auth, db } = initFirebase();
+    const firebaseUser = auth?.currentUser;
+
+    if (!db || !firebaseUser) {
+      throw new Error('Please sign in again before accepting this offer.');
+    }
+
+    if (!firebaseUser.emailVerified) {
+      throw new Error('Please verify your UTM email before continuing.');
+    }
+
+    const now = new Date().toISOString();
+    const tradeRef = doc(db, 'trades', requestId);
+    const notificationRef = doc(collection(db, 'notifications'));
+
+    let updated: TradeRequest | null = null;
+
+    await runTransaction(db, async (tx) => {
+      const tradeSnap = await tx.get(tradeRef);
+
+      if (!tradeSnap.exists()) {
+        throw new Error('Purchase request not found.');
+      }
+
+      const tradeData = tradeSnap.data() as TradeRequest;
+
+      if (tradeData.sellerId !== firebaseUser.uid) {
+        throw new Error('Unauthorized: Only the actual seller can accept this offer.');
+      }
+
+      if (!tradeData.buyerId || tradeData.buyerId === firebaseUser.uid) {
+        throw new Error('The buyer information is invalid.');
+      }
+
+      if (
+        tradeData.status !== 'Pending Seller Response' &&
+        tradeData.status !== 'Pending'
+      ) {
+        throw new Error('This offer is no longer awaiting seller acceptance.');
+      }
+
+      // Accept the offer. No payment confirmation or stock deduction here.
+      tx.update(tradeRef, {
+        status: 'Chat / Payment Arrangement',
+      });
+
+      // Notify the actual buyer through Firestore.
+      tx.set(notificationRef, {
+        recipientId: tradeData.buyerId,
+        senderId: firebaseUser.uid,
+        buyerId: tradeData.buyerId,
+        sellerId: firebaseUser.uid,
+        type: 'purchase_accepted',
+        title: 'Purchase Request Accepted!',
+        message: `The seller accepted your offer for "${tradeData.listingTitle}". Please arrange payment and campus handover in Chat.`,
+        isRead: false,
+        read: false,
+        createdAt: now,
+        relatedRequestId: requestId,
+        relatedListingId: tradeData.listingId,
+        linkTab: 'chat',
+      });
+
+      updated = {
+        ...tradeData,
+        status: 'Chat / Payment Arrangement',
+      };
+    });
+
+    if (!updated) {
+      throw new Error('The offer could not be accepted. Please try again.');
+    }
+
+    // Update the local cache only after Firestore succeeds.
+    const current = this.getTradeRequests();
+    const updatedList = current.map((request) =>
+      request.id === requestId ? updated! : request
+    );
+
+    this.saveTradeRequests(updatedList);
 
     return updated;
   },
 
   /**
-   * Buyer submits payment screenshot/receipt
-   * Updates status to 'Payment Under Review'
-   * CRITICAL: Does NOT deduct inventory! Stock remains reserved/active until seller approval.
+   * Buyer declares payment made.
+   * Atomically updates the trade and notifies the actual seller.
+   * CampusLoop does not verify or process the payment.
    */
-  async submitPaymentProof(requestId: string, paymentProofUrl: string, paymentMethod = 'DuitNow QR'): Promise<TradeRequest | null> {
-    if (!paymentProofUrl || paymentProofUrl.length > 500000) {
-      throw new Error('Payment proof image exceeds the 500,000-character Firestore limit. Please upload a smaller screenshot.');
+  async declarePaymentMade(
+    requestId: string,
+    paymentMethod = 'DuitNow QR'
+  ): Promise<TradeRequest | null> {
+    const { auth, db } = initFirebase();
+    const firebaseUser = auth?.currentUser;
+
+    if (!db || !firebaseUser) {
+      throw new Error('Please sign in again before declaring payment.');
     }
+
+    if (!firebaseUser.emailVerified) {
+      throw new Error('Please verify your UTM email before continuing.');
+    }
+
+    const method = paymentMethod.trim();
+
+    if (!method || method.length > 100) {
+      throw new Error('Please select a valid payment method.');
+    }
+
     const now = new Date().toISOString();
-    const current = this.getTradeRequests();
-    const target = current.find((r) => r.id === requestId);
-    if (!target) return null;
+    const tradeRef = doc(db, 'trades', requestId);
+    const notificationRef = doc(collection(db, 'notifications'));
 
-    const extra: Partial<TradeRequest> = {
-      paymentProofUrl,
-      paymentProofUploadedAt: now,
-      paymentMethod,
-    };
+    const updated = await runTransaction(db, async (tx) => {
+      const tradeSnap = await tx.get(tradeRef);
 
-    const updatedList = await this.updateTradeRequestStatus(requestId, 'Payment Under Review', extra);
-    const updated = updatedList.find((r) => r.id === requestId) || null;
-
-    if (updated) {
-      const { auth, db } = initFirebase();
-      const buyerUid = auth?.currentUser?.uid || updated.buyerId;
-      if (db && auth?.currentUser && updated.sellerId && buyerUid && updated.sellerId !== buyerUid) {
-        await this.createFirestoreNotification({
-          recipientId: updated.sellerId,
-          senderId: buyerUid,
-          buyerId: buyerUid,
-          sellerId: updated.sellerId,
-          type: 'purchase_request',
-          title: 'Payment Proof Uploaded',
-          message: `${updated.buyerName} uploaded payment proof for "${updated.listingTitle}" (${updated.quantity || 1} unit(s), RM ${(updated.totalPrice || updated.offeredPrice).toFixed(2)}). Please verify and approve.`,
-          relatedRequestId: updated.id,
-          relatedListingId: updated.listingId,
-          linkTab: 'me',
-          subTab: 'sales',
-        }).catch((err) => console.warn('Payment proof seller notification warning:', err));
+      if (!tradeSnap.exists()) {
+        throw new Error('Purchase request not found. Please refresh and try again.');
       }
-    }
+
+      const tradeData = tradeSnap.data() as TradeRequest;
+
+      if (tradeData.buyerId !== firebaseUser.uid) {
+        throw new Error('Only the actual buyer can declare payment.');
+      }
+
+      if (!tradeData.sellerId || tradeData.sellerId === firebaseUser.uid) {
+        throw new Error('The seller information is invalid.');
+      }
+
+      const allowedSourceStates = [
+        'Pending Seller Response',
+        'Pending',
+        'Chat / Payment Arrangement',
+      ];
+
+      if (!allowedSourceStates.includes(tradeData.status)) {
+        throw new Error(
+          `Payment cannot be declared while the request is "${tradeData.status}".`
+        );
+      }
+
+      const updatedTrade: TradeRequest = {
+        ...tradeData,
+        status: 'Payment Under Review',
+        paymentDeclaredAt: now,
+        paymentMethod: method,
+      };
+
+      tx.update(tradeRef, {
+        status: 'Payment Under Review',
+        paymentDeclaredAt: now,
+        paymentMethod: method,
+      });
+
+      tx.set(notificationRef, {
+        recipientId: tradeData.sellerId,
+        senderId: firebaseUser.uid,
+        buyerId: firebaseUser.uid,
+        sellerId: tradeData.sellerId,
+        type: 'payment_declared',
+        title: 'Buyer Declared Payment',
+        message: `${tradeData.buyerName} says they have paid RM ${(tradeData.totalPrice || tradeData.offeredPrice).toFixed(2)} for "${tradeData.listingTitle}". Please independently check your account before confirming receipt.`,
+        isRead: false,
+        read: false,
+        createdAt: now,
+        relatedRequestId: requestId,
+        relatedListingId: tradeData.listingId,
+        linkTab: 'me',
+      });
+
+      return updatedTrade;
+    });
+
+    
+    const currentRequests = this.getTradeRequests();
+    const nextRequests = currentRequests.map((request) =>
+      request.id === requestId ? updated : request
+    );
+
+    this.saveTradeRequests(nextRequests);
+
+    this.addCampusNotification(
+      'Payment Declaration Submitted',
+      `Your payment declaration for "${updated.listingTitle}" was sent to the seller. The seller must independently confirm receipt.`,
+      'trade_request',
+      'me'
+    );
 
     return updated;
   },
+
 
   /**
    * Seller ONLY: Approve transaction and deduct inventory
    * Strict validation: checks available stock against requested quantity
    * Deducts quantity from remainingQuantity, marks listing 'Sold' if remaining is 0
    */
-  async approveTransaction(requestId: string, sellerId?: string): Promise<{ success: boolean; error?: string; request?: TradeRequest; listing?: Listing }> {
-    const requests = this.getTradeRequests();
-    const targetReq = requests.find((r) => r.id === requestId);
-    if (sellerId && targetReq && targetReq.sellerId && targetReq.sellerId !== sellerId) {
-      return { success: false, error: 'Unauthorized: Only the seller can approve this request.' };
+
+  /**
+   * Seller ONLY: Confirm payment received and deduct inventory.
+   * Requires a verified Firebase user and a buyer payment declaration.
+   * Trade update, stock deduction and buyer notification are atomic.
+   */
+  async approveTransaction(
+    requestId: string,
+    sellerId?: string
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    request?: TradeRequest;
+    listing?: Listing;
+  }> {
+    const { auth, db } = initFirebase();
+    const firebaseUser = auth?.currentUser;
+
+    if (!db || !firebaseUser) {
+      return {
+        success: false,
+        error: 'Please sign in again before confirming payment.',
+      };
     }
 
-    const { auth, db } = initFirebase();
+    if (!firebaseUser.emailVerified) {
+      return {
+        success: false,
+        error: 'Please verify your UTM email before confirming payment.',
+      };
+    }
+
+    if (sellerId && sellerId !== firebaseUser.uid) {
+      return {
+        success: false,
+        error: 'Unauthorized: Your account does not match the signed-in seller.',
+      };
+    }
+
     const now = new Date().toISOString();
+    const tradeDocRef = doc(db, 'trades', requestId);
+    const notificationRef = doc(collection(db, 'notifications'));
+
     let updatedReq: TradeRequest | undefined;
     let updatedListing: Listing | undefined;
 
-    // 1. Atomic Firestore Transaction (when connected to Firebase)
-    if (db && auth?.currentUser) {
-      try {
-        await runTransaction(db, async (tx) => {
-          const tradeDocRef = doc(db, 'trades', requestId);
-          const tradeSnap = await tx.get(tradeDocRef);
-          if (!tradeSnap.exists()) {
-            throw new Error('Purchase request not found in Firestore.');
-          }
-          const tradeData = tradeSnap.data() as TradeRequest;
-          if (tradeData.sellerId !== auth.currentUser?.uid) {
-            throw new Error('Unauthorized: Only the seller can approve this request.');
-          }
-          const allowedSourceStates = ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'];
-          if (!allowedSourceStates.includes(tradeData.status)) {
-            throw new Error(`Cannot approve transaction in status "${tradeData.status}".`);
-          }
+    try {
+      await runTransaction(db, async (tx) => {
+        // Read the actual trade from Firestore.
+        const tradeSnap = await tx.get(tradeDocRef);
 
-          const listingDocRef = doc(db, 'listings', tradeData.listingId);
-          const listingSnap = await tx.get(listingDocRef);
-          if (!listingSnap.exists()) {
-            throw new Error('Associated product listing not found.');
-          }
-          const listingData = listingSnap.data() as Listing;
-          const statusStr = (listingData.status as string) || '';
-          if (statusStr !== 'Active' && statusStr !== 'active') {
-            throw new Error(`Listing is no longer active (current status: ${listingData.status}).`);
-          }
+        if (!tradeSnap.exists()) {
+          throw new Error('Purchase request not found in Firestore.');
+        }
 
-          const reqQty = typeof tradeData.quantity === 'number' && tradeData.quantity > 0 ? Math.floor(tradeData.quantity) : 1;
-          const currentRemaining = typeof listingData.remainingQuantity === 'number' ? listingData.remainingQuantity : 1;
+        const tradeData = tradeSnap.data() as TradeRequest;
 
-          if (currentRemaining < reqQty) {
-            throw new Error(`Insufficient stock! Only ${currentRemaining} unit(s) remaining, but ${reqQty} unit(s) were requested.`);
-          }
+        // Only the actual seller can confirm payment.
+        if (tradeData.sellerId !== firebaseUser.uid) {
+          throw new Error(
+            'Unauthorized: Only the actual seller can confirm payment.'
+          );
+        }
 
-          const newRemaining = Math.max(0, currentRemaining - reqQty);
-          const newListingStatus: Listing['status'] = newRemaining === 0 ? 'Sold' : 'Active';
+        if (
+          !tradeData.buyerId ||
+          tradeData.buyerId === firebaseUser.uid
+        ) {
+          throw new Error('The buyer information is invalid.');
+        }
 
-          // Atomically decrement stock on listing and mark trade approved
-          tx.update(listingDocRef, {
-            remainingQuantity: newRemaining,
-            status: newListingStatus,
-          });
+        // Buyer must declare payment before seller confirmation.
+        if (tradeData.status !== 'Payment Under Review') {
+          throw new Error(
+            `Payment cannot be confirmed while the request is "${tradeData.status}".`
+          );
+        }
 
-          tx.update(tradeDocRef, {
-            status: 'Approved',
-            approvedAt: now,
-          });
+        if (
+          typeof tradeData.quantity !== 'number' ||
+          !Number.isInteger(tradeData.quantity) ||
+          tradeData.quantity < 1
+        ) {
+          throw new Error('The requested item quantity is invalid.');
+        }
 
-          updatedListing = {
-            ...listingData,
-            id: listingSnap.id,
-            remainingQuantity: newRemaining,
-            status: newListingStatus,
-          };
-          updatedReq = {
-            ...tradeData,
-            id: tradeSnap.id,
-            createdAt: normalizeIsoTimestamp(tradeData.createdAt),
-            isSentByCurrentUser: tradeData.buyerId === auth.currentUser?.uid,
-            status: 'Approved',
-            approvedAt: now,
-          };
+        // Read and validate the actual listing.
+        const listingDocRef = doc(db, 'listings', tradeData.listingId);
+        const listingSnap = await tx.get(listingDocRef);
+
+        if (!listingSnap.exists()) {
+          throw new Error('Associated product listing not found.');
+        }
+
+        const listingData = listingSnap.data() as Listing;
+
+        if (listingData.sellerId !== firebaseUser.uid) {
+          throw new Error(
+            'Unauthorized: You do not own the associated listing.'
+          );
+        }
+
+        if (listingData.status !== 'Active') {
+          throw new Error(
+            `Listing is no longer active (current status: ${listingData.status}).`
+          );
+        }
+
+        const currentRemaining = listingData.remainingQuantity;
+
+        if (
+          typeof currentRemaining !== 'number' ||
+          !Number.isInteger(currentRemaining) ||
+          currentRemaining < tradeData.quantity
+        ) {
+          throw new Error(
+            `Insufficient stock! Available: ${currentRemaining ?? 0}, requested: ${tradeData.quantity}.`
+          );
+        }
+
+        const newRemaining = currentRemaining - tradeData.quantity;
+        const newListingStatus: Listing['status'] =
+          newRemaining === 0 ? 'Sold' : 'Active';
+
+        // Atomically update stock and approve the trade.
+        tx.update(listingDocRef, {
+          remainingQuantity: newRemaining,
+          status: newListingStatus,
         });
-      } catch (err: any) {
-        console.error('Atomic transaction failed in approveTransaction:', err);
-        return {
-          success: false,
-          error: err.message || 'Failed to approve transaction due to a database concurrency conflict.',
+
+        tx.update(tradeDocRef, {
+          status: 'Approved',
+          approvedAt: now,
+        });
+
+        // Notify the actual buyer through Firestore.
+        tx.set(notificationRef, {
+          recipientId: tradeData.buyerId,
+          senderId: firebaseUser.uid,
+          buyerId: tradeData.buyerId,
+          sellerId: firebaseUser.uid,
+          type: 'payment_received',
+          title: 'Payment Received',
+          message: `The seller has confirmed receipt of your payment for "${tradeData.listingTitle}". Please coordinate your campus handover in Chat.`,
+          isRead: false,
+          read: false,
+          createdAt: now,
+          relatedRequestId: requestId,
+          relatedListingId: tradeData.listingId,
+          linkTab: 'chat',
+        });
+
+        updatedListing = {
+          ...listingData,
+          remainingQuantity: newRemaining,
+          status: newListingStatus,
         };
-      }
+
+        updatedReq = {
+          ...tradeData,
+          status: 'Approved',
+          approvedAt: now,
+        };
+      });
+    } catch (err: any) {
+      console.error(
+        'Atomic transaction failed in approveTransaction:',
+        err
+      );
+
+      return {
+        success: false,
+        error:
+          err.message ||
+          'Failed to confirm payment. Please try again.',
+      };
     }
 
-    // 2. Synchronize local state
     if (!updatedReq || !updatedListing) {
-      if (!targetReq) {
-        return { success: false, error: 'Purchase request not found.' };
-      }
-      // Local fallback execution if offline or without Firebase Auth
-      const listings = this.getListings();
-      const listing = listings.find((l) => l.id === targetReq.listingId);
-      if (!listing) {
-        return { success: false, error: 'Associated product listing not found.' };
-      }
-
-      const requestedQty = targetReq.quantity || 1;
-      const currentRemaining = typeof listing.remainingQuantity === 'number' ? listing.remainingQuantity : 1;
-
-      if (currentRemaining < requestedQty) {
-        return {
-          success: false,
-          error: `Insufficient stock! Only ${currentRemaining} unit(s) remaining, but ${requestedQty} unit(s) were requested.`
-        };
-      }
-
-      const newRemaining = Math.max(0, currentRemaining - requestedQty);
-      updatedListing = (await this.updateListing(listing.id, {
-        remainingQuantity: newRemaining,
-        status: newRemaining === 0 ? 'Sold' : 'Active',
-      })) || undefined;
-
-      const updatedList = await this.updateTradeRequestStatus(requestId, 'Approved', { approvedAt: now });
-      updatedReq = updatedList.find((r) => r.id === requestId);
-    } else {
-      const currentListings = this.getListings();
-      const nextListings = currentListings.map((l) => (l.id === updatedListing!.id ? updatedListing! : l));
-      this.saveListings(nextListings);
-
-      const currentRequests = this.getTradeRequests();
-      const nextRequests = currentRequests.map((r) => (r.id === updatedReq!.id ? updatedReq! : r));
-      this.saveTradeRequests(nextRequests);
+      return {
+        success: false,
+        error: 'Payment confirmation could not be completed.',
+      };
     }
 
-    // Notify buyer via Firestore
-    if (updatedReq && db && auth?.currentUser && updatedReq.buyerId && updatedReq.buyerId !== auth.currentUser.uid) {
-      await this.createFirestoreNotification({
-        recipientId: updatedReq.buyerId,
-        senderId: auth.currentUser.uid,
-        buyerId: updatedReq.buyerId,
-        sellerId: updatedReq.sellerId,
-        type: 'purchase_request',
-        title: 'Purchase Approved',
-        message: `Seller approved payment of RM ${(updatedReq.totalPrice || updatedReq.offeredPrice).toFixed(2)} for ${updatedReq.quantity || 1}x "${updatedReq.listingTitle}". Coordinate campus meetup in Chat!`,
-        relatedRequestId: updatedReq.id,
-        relatedListingId: updatedReq.listingId,
-        linkTab: 'me',
-        subTab: 'purchases',
-      }).catch((err) => console.warn('Buyer approval notification warning:', err));
+    // Synchronize local application state after Firestore succeeds.
+    const currentListings = this.getListings();
+    const nextListings = currentListings.map((listing) =>
+      listing.id === updatedListing!.id
+        ? updatedListing!
+        : listing
+    );
+    this.saveListings(nextListings);
+
+    const currentRequests = this.getTradeRequests();
+    const nextRequests = currentRequests.map((request) =>
+      request.id === updatedReq!.id
+        ? updatedReq!
+        : request
+    );
+    this.saveTradeRequests(nextRequests);
+
+    // Notify other pending requests if the item is sold out.
+    if (updatedListing.remainingQuantity === 0) {
+      const otherPending = this.getTradeRequests().filter(
+        (request) =>
+          request.listingId === updatedListing!.id &&
+          request.id !== requestId &&
+          [
+            'Pending Seller Response',
+            'Pending',
+            'Chat / Payment Arrangement',
+            'Payment Under Review',
+          ].includes(request.status)
+      );
+
+      for (const pending of otherPending) {
+        this.addCampusNotification(
+          'Item Out of Stock',
+          `"${updatedListing.title}" is now sold out. Your request #${pending.id.slice(-6)} cannot be fulfilled.`,
+          'trade_request',
+          'mall'
+        );
+      }
     }
 
     return {
@@ -1152,88 +1319,109 @@ export const storageService = {
     };
   },
 
+
+
   /**
    * Seller ONLY: Reject payment proof
-   * Keeps stock unchanged and notifies buyer with reason
+   * Saves rejection to Firestore and notifies the actual buyer.
    */
-  async rejectPaymentProof(requestId: string, reason: string, sellerId?: string): Promise<{ success: boolean; error?: string; request?: TradeRequest }> {
+  async rejectPaymentProof(
+    requestId: string,
+    reason: string,
+    sellerId?: string
+  ): Promise<{ success: boolean; error?: string; request?: TradeRequest }> {
     const requests = this.getTradeRequests();
-    const targetReq = requests.find((r) => r.id === requestId);
+    const targetReq = requests.find(r => r.id === requestId);
+
     if (!targetReq) {
       return { success: false, error: 'Purchase request not found.' };
     }
-    if (sellerId && targetReq.sellerId && targetReq.sellerId !== sellerId) {
-      return { success: false, error: 'Unauthorized: Only the seller can reject this payment proof.' };
+
+    const { auth, db } = initFirebase();
+    const firebaseUser = auth?.currentUser;
+
+    if (!db || !firebaseUser) {
+      return { success: false, error: 'Please sign in again before rejecting payment proof.' };
     }
 
-    const cleanReason = reason.trim() || 'Payment proof was unclear or did not match the expected amount.';
-    const updatedList = await this.updateTradeRequestStatus(requestId, 'Payment Proof Rejected', {
-      rejectionReason: cleanReason,
-    });
-    const updated = updatedList.find((r) => r.id === requestId);
-
-    if (updated) {
-      const { auth, db } = initFirebase();
-      if (db && auth?.currentUser && updated.buyerId && updated.buyerId !== auth.currentUser.uid) {
-        await this.createFirestoreNotification({
-          recipientId: updated.buyerId,
-          senderId: auth.currentUser.uid,
-          buyerId: updated.buyerId,
-          sellerId: updated.sellerId,
-          type: 'purchase_request',
-          title: 'Payment Proof Rejected',
-          message: `Seller rejected payment proof for "${updated.listingTitle}": ${cleanReason}`,
-          relatedRequestId: updated.id,
-          relatedListingId: updated.listingId,
-          linkTab: 'me',
-          subTab: 'purchases',
-        }).catch((err) => console.warn('Payment rejection notification warning:', err));
-      }
-      return { success: true, request: updated };
+    if (
+      firebaseUser.uid !== targetReq.sellerId ||
+      (sellerId && targetReq.sellerId !== sellerId)
+    ) {
+      return { success: false, error: 'Unauthorized: Only the actual seller can reject this payment proof.' };
     }
 
-    return { success: false, error: 'Could not update payment proof status.' };
+    const extra: Partial<TradeRequest> = {
+      rejectionReason:
+        reason.trim() ||
+        'Payment proof was unclear or did not match the expected amount.',
+    };
+
+    // STEP 1: Save the rejection to Firestore.
+    const updatedList = await this.updateTradeRequestStatus(
+      requestId,
+      'Payment Proof Rejected',
+      extra,
+      true
+    );
+
+    const updated = updatedList.find(r => r.id === requestId);
+
+    if (!updated) {
+      return { success: false, error: 'Could not update payment proof status.' };
+    }
+
+    // STEP 2: Notify the actual buyer in Firestore.
+    try {
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: targetReq.buyerId,
+        senderId: firebaseUser.uid,
+        buyerId: targetReq.buyerId,
+        sellerId: firebaseUser.uid,
+        type: 'payment_proof_rejected',
+        title: 'Payment Proof Rejected',
+        message: `Your payment proof for "${updated.listingTitle}" was rejected: ${extra.rejectionReason}`,
+        isRead: false,
+        read: false,
+        createdAt: new Date().toISOString(),
+        relatedRequestId: requestId,
+        relatedListingId: targetReq.listingId,
+        linkTab: 'me',
+      });
+    } catch (notificationError) {
+      console.error(
+        'Payment rejection was saved, but buyer notification failed:',
+        notificationError
+      );
+
+      throw new Error(
+        'The payment rejection was saved, but the buyer notification could not be delivered. Please contact the buyer.'
+      );
+    }
+
+    return { success: true, request: updated };
   },
 
   /**
-   * Seller ONLY: Complete transaction (Handover completed)
+   * Complete transaction (Handover completed)
    */
   async completeTransaction(requestId: string): Promise<TradeRequest | null> {
-    const requests = this.getTradeRequests();
-    const targetReq = requests.find((r) => r.id === requestId);
-    const { auth, db } = initFirebase();
-
-    if (db && auth?.currentUser && targetReq?.sellerId && targetReq.sellerId !== auth.currentUser.uid) {
-      throw new Error('Unauthorized: Only the seller can mark a handover as completed.');
-    }
-
     const now = new Date().toISOString();
-    const updatedList = await this.updateTradeRequestStatus(requestId, 'Completed', { completedAt: now });
-    const updated = updatedList.find((r) => r.id === requestId) || null;
 
-    if (updated && db && auth?.currentUser && updated.buyerId && updated.buyerId !== auth.currentUser.uid) {
-      await this.createFirestoreNotification({
-        recipientId: updated.buyerId,
-        senderId: auth.currentUser.uid,
-        buyerId: updated.buyerId,
-        sellerId: updated.sellerId,
-        type: 'purchase_request',
-        title: 'Transaction Completed',
-        message: `Handover for "${updated.listingTitle}" is complete!`,
-        relatedRequestId: updated.id,
-        relatedListingId: updated.listingId,
-        linkTab: 'me',
-        subTab: 'purchases',
-      }).catch((err) => console.warn('Completion notification warning:', err));
-    }
+    const updatedList = await this.updateTradeRequestStatus(
+      requestId,
+      'Completed',
+      { completedAt: now }
+    );
+
+    const updated = updatedList.find(r => r.id === requestId) || null;
 
     return updated;
   },
 
+
   updateRequestStatus(requestId: string, status: TradeRequest['status']): TradeRequest[] {
-    this.updateTradeRequestStatus(requestId, status).catch((err) => {
-      console.warn('updateRequestStatus warning:', err);
-    });
+    this.updateTradeRequestStatus(requestId, status);
     return this.getTradeRequests();
   },
 
@@ -1317,59 +1505,32 @@ export const storageService = {
 
     const { auth, db } = initFirebase();
     if (db && auth?.currentUser) {
-      const rentalCol = collection(db, 'rentalRequests');
-      const rentalDocRef = doc(rentalCol);
-      newReq.id = rentalDocRef.id;
-      const cleanRentalPayload = sanitizeFirestoreFields(
-        {
-          ...newReq,
-          renterId: auth.currentUser.uid,
-        },
-        ['isSentByCurrentUser']
-      );
       try {
-        await setDoc(rentalDocRef, cleanRentalPayload);
+        const docRef = await addDoc(collection(db, 'rentalRequests'), newReq);
+        newReq.id = docRef.id;
       } catch (err) {
         console.warn('Firestore rental request write warning:', err);
       }
-
-      if (newReq.ownerId && newReq.ownerId !== auth.currentUser.uid) {
-        await this.createFirestoreNotification({
-          recipientId: newReq.ownerId,
-          senderId: auth.currentUser.uid,
-          type: 'rental_request',
-          title: 'New Rental Request',
-          message: `${newReq.renterName} requested to rent "${newReq.rentalItemName}" from ${newReq.startDate} to ${newReq.returnDate}.`,
-          relatedRentalId: newReq.id,
-          linkTab: 'me',
-          subTab: 'rentals',
-        }).catch((err) => console.warn('Rental owner notification warning:', err));
-      }
-    } else {
-      this.addCampusNotification(
-        'New Rental Request!',
-        `${newReq.renterName} requested to rent "${newReq.rentalItemName}" from ${newReq.startDate} to ${newReq.returnDate}.`,
-        'rental_request',
-        'rent',
-        newReq.id
-      );
     }
 
     const requests = this.getRentalRequests();
     const updated = [newReq, ...requests];
     this.saveRentalRequests(updated);
 
+    this.addCampusNotification(
+      'New Rental Request!',
+      `${newReq.renterName} requested to rent "${newReq.rentalItemName}" from ${newReq.startDate} to ${newReq.returnDate}.`,
+      'rental_request',
+      'rent',
+      newReq.id
+    );
+
     return newReq;
   },
 
   async updateRentalRequestStatus(id: string, status: RentalStatus, extraData?: Partial<RentalRequest>): Promise<RentalRequest | null> {
     const now = new Date().toISOString();
-    const cleanExtra = sanitizeFirestoreFields(
-      (extraData || {}) as Record<string, any>,
-      ['id', 'renterId', 'ownerId', 'rentalItemId', 'createdAt', 'isSentByCurrentUser'],
-      { preserveNull: true }
-    );
-    const payload = { status, updatedAt: now, ...cleanExtra };
+    const payload = { status, updatedAt: now, ...(extraData || {}) };
 
     const { auth, db } = initFirebase();
 
@@ -1441,32 +1602,23 @@ export const storageService = {
 
     if (updatedReq) {
       this.saveRentalRequests(updated);
-      const targetRentalReq = updatedReq as RentalRequest;
 
-      if (db && auth?.currentUser && targetRentalReq.renterId && targetRentalReq.renterId !== auth.currentUser.uid) {
-        if (status === 'Approved') {
-          await this.createFirestoreNotification({
-            recipientId: targetRentalReq.renterId,
-            senderId: auth.currentUser.uid,
-            type: 'rental_approved',
-            title: 'Rental Request Approved',
-            message: `Your rental request for "${targetRentalReq.rentalItemName}" was approved. Please arrange campus handover.`,
-            relatedRentalId: id,
-            linkTab: 'me',
-            subTab: 'rentals',
-          }).catch((err) => console.warn('Rental approved notification warning:', err));
-        } else if (status === 'Rejected') {
-          await this.createFirestoreNotification({
-            recipientId: targetRentalReq.renterId,
-            senderId: auth.currentUser.uid,
-            type: 'rental_rejected',
-            title: 'Rental Request Declined',
-            message: `Your rental request for "${targetRentalReq.rentalItemName}" was declined by the owner.`,
-            relatedRentalId: id,
-            linkTab: 'me',
-            subTab: 'rentals',
-          }).catch((err) => console.warn('Rental rejected notification warning:', err));
-        }
+      if (status === 'Approved') {
+        this.addCampusNotification(
+          'Rental Request Approved!',
+          `Your rental request for "${(updatedReq as RentalRequest).rentalItemName}" was approved. Please arrange campus handover.`,
+          'rental_approved',
+          'rent',
+          id
+        );
+      } else if (status === 'Rejected') {
+        this.addCampusNotification(
+          'Rental Request Declined',
+          `Your rental request for "${(updatedReq as RentalRequest).rentalItemName}" was declined by the owner.`,
+          'rental_rejected',
+          'rent',
+          id
+        );
       }
     }
     return updatedReq;
@@ -1737,13 +1889,13 @@ export const storageService = {
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const newMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      senderId: actualSenderId,
-      senderName: actualSenderName,
-      text,
-      timestamp: timeStr,
-      sharedListing: actualSharedListing
-    };
+  id: `msg-${Date.now()}`,
+  senderId: actualSenderId,
+  senderName: actualSenderName,
+  text,
+  timestamp: timeStr,
+  ...(actualSharedListing ? { sharedListing: actualSharedListing } : {})
+};
 
     // Firebase Firestore Sync: Write strictly to the subcollection, update header metadata only
     const { auth, db } = initFirebase();
@@ -1920,7 +2072,7 @@ export const storageService = {
     return updated;
   },
 
-  // --- NOTIFICATIONS (Recipient-scoped Firestore /notifications) ---
+  // --- NOTIFICATIONS ---
   getNotifications(): CampusNotification[] {
     try {
       const stored = localStorage.getItem(NOTIFICATIONS_KEY);
@@ -1940,193 +2092,89 @@ export const storageService = {
     return notifs;
   },
 
-  clearUserScopedLocalCache() {
-    try {
-      localStorage.removeItem(NOTIFICATIONS_KEY);
-      localStorage.removeItem(REQUESTS_KEY);
-      localStorage.removeItem(CART_KEY);
-    } catch {}
-  },
-
-  async createFirestoreNotification(input: {
-    recipientId: string;
-    senderId?: string;
-    buyerId?: string;
-    sellerId?: string;
-    type: CampusNotification['type'];
-    title: string;
-    message: string;
-    relatedRequestId?: string;
-    relatedListingId?: string;
-    relatedRentalId?: string;
-    linkTab?: string;
-    subTab?: string;
-  }): Promise<CampusNotification | null> {
+  
+  async markNotificationAsRead(id: string): Promise<CampusNotification[]> {
     const { auth, db } = initFirebase();
     const currentUser = auth?.currentUser;
-    if (!db || !currentUser) return null;
 
-    const notifCol = collection(db, 'notifications');
-    const docRef = doc(notifCol);
-    const notifId = docRef.id;
-    const nowIso = new Date().toISOString();
+    if (db && currentUser) {
+      const notificationRef = doc(db, 'notifications', id);
+      const notificationSnap = await getDoc(notificationRef);
 
-    const firestorePayload = sanitizeFirestoreFields({
-      id: notifId,
-      recipientId: input.recipientId,
-      senderId: currentUser.uid,
-      buyerId: input.buyerId,
-      sellerId: input.sellerId,
-      type: input.type,
-      title: input.title,
-      message: input.message,
-      relatedRequestId: input.relatedRequestId,
-      relatedListingId: input.relatedListingId,
-      relatedRentalId: input.relatedRentalId,
-      linkTab: input.linkTab,
-      subTab: input.subTab,
-      isRead: false,
-      read: false,
-      createdAt: serverTimestamp(),
-    });
+      if (notificationSnap.exists()) {
+        const notification = notificationSnap.data() as CampusNotification;
 
-    try {
-      await setDoc(docRef, firestorePayload);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `notifications/${notifId}`);
-    }
-
-    const createdLocal: CampusNotification = {
-      id: notifId,
-      recipientId: input.recipientId,
-      senderId: currentUser.uid,
-      buyerId: input.buyerId,
-      sellerId: input.sellerId,
-      type: input.type,
-      title: input.title,
-      message: input.message,
-      relatedRequestId: input.relatedRequestId,
-      relatedListingId: input.relatedListingId,
-      relatedRentalId: input.relatedRentalId,
-      linkTab: input.linkTab,
-      subTab: input.subTab,
-      isRead: false,
-      read: false,
-      createdAt: nowIso,
-      timestamp: formatNotificationTime(nowIso),
-    };
-
-    // Only mirror to localStorage if the notification is actually addressed to the signed-in user
-    if (input.recipientId === currentUser.uid) {
-      const existing = this.getNotifications();
-      this.saveNotifications([createdLocal, ...existing.filter((n) => n.id !== notifId)]);
-    }
-
-    return createdLocal;
-  },
-
-  subscribeToNotifications(
-    userId: string | undefined,
-    callback: (notifications: CampusNotification[]) => void
-  ): () => void {
-    const { auth, db } = initFirebase();
-    const activeUid = userId || auth?.currentUser?.uid;
-
-    if (!activeUid) {
-      this.saveNotifications([]);
-      callback([]);
-      return () => {};
-    }
-
-    if (db && auth?.currentUser && auth.currentUser.uid === activeUid && auth.currentUser.emailVerified) {
-      try {
-        const q = query(collection(db, 'notifications'), where('recipientId', '==', activeUid));
-        const unsubscribe = onSnapshot(
-          q,
-          (snapshot) => {
-            const items: CampusNotification[] = [];
-            snapshot.forEach((docSnap) => {
-              const data = docSnap.data();
-              const createdIso = normalizeIsoTimestamp(data.createdAt);
-              items.push({
-                ...(data as any),
-                id: docSnap.id,
-                createdAt: createdIso,
-                timestamp: formatNotificationTime(createdIso),
-                isRead: data.isRead === true || data.read === true,
-                read: data.isRead === true || data.read === true,
-              });
-            });
-            items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            this.saveNotifications(items);
-            callback(items);
-          },
-          (err) => {
-            console.warn('Firestore notifications subscription fallback:', err);
-            callback(this.getNotifications());
-          }
-        );
-        return unsubscribe;
-      } catch (e) {
-        console.warn('Failed to subscribe to Firestore notifications:', e);
+        if (notification.recipientId === currentUser.uid) {
+          await updateDoc(notificationRef, {
+            isRead: true,
+            read: true,
+          });
+        }
       }
     }
 
-    callback(this.getNotifications());
-    return () => {};
-  },
-
-  markNotificationAsRead(id: string): CampusNotification[] {
     const notifs = this.getNotifications();
-    const target = notifs.find((n) => n.id === id);
     const updated = notifs.map((n) =>
       n.id === id ? { ...n, isRead: true, read: true } : n
     );
-    this.saveNotifications(updated);
 
-    const { auth, db } = initFirebase();
-    if (db && auth?.currentUser && target && (!target.recipientId || target.recipientId === auth.currentUser.uid)) {
-      updateDoc(doc(db, 'notifications', id), { isRead: true, read: true }).catch((err) => {
-        console.warn('Firestore markNotificationAsRead warning:', err);
-      });
-    }
-
-    return updated;
-  },
-
-  markAllNotificationsAsRead(): CampusNotification[] {
-    const notifs = this.getNotifications();
-    const { auth, db } = initFirebase();
-    if (db && auth?.currentUser) {
-      const uid = auth.currentUser.uid;
-      notifs
-        .filter((n) => (!n.isRead && !n.read) && (!n.recipientId || n.recipientId === uid))
-        .forEach((n) => {
-          updateDoc(doc(db, 'notifications', n.id), { isRead: true, read: true }).catch((err) => {
-            console.warn('Firestore markAllNotificationsAsRead warning:', err);
-          });
-        });
-    }
-
-    const updated = notifs.map((n) => ({ ...n, isRead: true, read: true }));
     return this.saveNotifications(updated);
   },
 
-  clearAllNotifications(): CampusNotification[] {
-    const notifs = this.getNotifications();
+  async markAllNotificationsAsRead(): Promise<CampusNotification[]> {
     const { auth, db } = initFirebase();
-    if (db && auth?.currentUser) {
-      const uid = auth.currentUser.uid;
-      notifs
-        .filter((n) => !n.recipientId || n.recipientId === uid)
-        .forEach((n) => {
-          deleteDoc(doc(db, 'notifications', n.id)).catch((err) => {
-            console.warn('Firestore clearAllNotifications warning:', err);
-          });
-        });
+    const currentUser = auth?.currentUser;
+
+    if (db && currentUser) {
+      const q = query(
+        collection(db, 'notifications'),
+        where('recipientId', '==', currentUser.uid)
+      );
+
+      const snapshot = await getDocs(q);
+
+      await Promise.all(
+        snapshot.docs.map((notificationDoc) =>
+          updateDoc(notificationDoc.ref, {
+            isRead: true,
+            read: true,
+          })
+        )
+      );
     }
+
+    const notifs = this.getNotifications();
+    const updated = notifs.map((n) => ({
+      ...n,
+      isRead: true,
+      read: true,
+    }));
+
+    return this.saveNotifications(updated);
+  },
+
+  async clearAllNotifications(): Promise<CampusNotification[]> {
+    const { auth, db } = initFirebase();
+    const currentUser = auth?.currentUser;
+
+    if (db && currentUser) {
+      const q = query(
+        collection(db, 'notifications'),
+        where('recipientId', '==', currentUser.uid)
+      );
+
+      const snapshot = await getDocs(q);
+
+      await Promise.all(
+        snapshot.docs.map((notificationDoc) =>
+          deleteDoc(notificationDoc.ref)
+        )
+      );
+    }
+
     return this.saveNotifications([]);
   },
+
 
   addCampusNotification(
     title: string, 
@@ -2136,7 +2184,6 @@ export const storageService = {
     relatedRentalId?: string
   ): CampusNotification {
     const notifs = this.getNotifications();
-    const nowIso = new Date().toISOString();
     const newNotif: CampusNotification = {
       id: `notif-${Date.now()}`,
       title,
@@ -2144,8 +2191,8 @@ export const storageService = {
       type,
       isRead: false,
       read: false,
-      createdAt: nowIso,
-      timestamp: formatNotificationTime(nowIso),
+      createdAt: 'Just now',
+      timestamp: 'Just now',
       linkTab,
       relatedRentalId,
     };

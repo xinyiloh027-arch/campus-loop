@@ -65,6 +65,109 @@ service cloud.firestore {
     function listingExists(listingId) {
       return exists(/databases/$(database)/documents/listings/$(listingId));
     }
+    function hasValidSellerStockDeduction(listingId, sellerId, quantity) {
+  let listingPath = /databases/$(database)/documents/listings/$(listingId);
+
+  return exists(listingPath) &&
+    hasValidSellerStockDeductionForExistingListing(
+      listingPath,
+      sellerId,
+      quantity
+    );
+}
+
+function hasValidSellerStockDeductionForExistingListing(
+  listingPath,
+  sellerId,
+  quantity
+) {
+  let listing = get(listingPath).data;
+  let updatedListing = getAfter(listingPath).data;
+
+  return listing.sellerId == sellerId &&
+    listing.status in ['Active', 'active'] &&
+    listing.remainingQuantity is int &&
+    listing.remainingQuantity >= quantity &&
+    updatedListing.remainingQuantity == listing.remainingQuantity - quantity &&
+    (
+      (listing.remainingQuantity - quantity == 0 &&
+        updatedListing.status == 'Sold') ||
+      (listing.remainingQuantity - quantity > 0 &&
+        updatedListing.status in ['Active', 'active'])
+    );
+}
+
+            // Validates a buyer's payment declaration notification.
+    // Requires a real payment-declaration transition in the same transaction.
+    function isValidPaymentDeclaredNotification(tradeId) {
+      let tradePath = /databases/$(database)/documents/trades/$(tradeId);
+      let previousTrade = get(tradePath).data;
+      let trade = getAfter(tradePath).data;
+
+      return previousTrade.buyerId == request.auth.uid &&
+        previousTrade.status in [
+          'Pending Seller Response',
+          'Pending',
+          'Chat / Payment Arrangement'
+        ] &&
+        trade.buyerId == request.auth.uid &&
+        trade.sellerId == incoming().recipientId &&
+        trade.status == 'Payment Under Review' &&
+        trade.paymentDeclaredAt is string &&
+        trade.paymentDeclaredAt.size() > 0 &&
+        trade.paymentDeclaredAt.size() <= 50 &&
+        trade.paymentMethod is string &&
+        trade.paymentMethod.size() > 0 &&
+        trade.paymentMethod.size() <= 100 &&
+        incoming().senderId == trade.buyerId &&
+        incoming().buyerId == trade.buyerId &&
+        incoming().sellerId == trade.sellerId &&
+        incoming().relatedListingId == trade.listingId;
+    }
+
+    // Validates a seller's payment-received notification.
+    // Requires payment confirmation and stock deduction in the same transaction.
+    function isValidPaymentReceivedNotification(tradeId) {
+      let tradePath = /databases/$(database)/documents/trades/$(tradeId);
+      let previousTrade = get(tradePath).data;
+      let trade = getAfter(tradePath).data;
+
+      return previousTrade.sellerId == request.auth.uid &&
+        previousTrade.status == 'Payment Under Review' &&
+        trade.sellerId == request.auth.uid &&
+        trade.buyerId == incoming().recipientId &&
+        trade.status == 'Approved' &&
+        trade.approvedAt is string &&
+        trade.approvedAt.size() > 0 &&
+        trade.approvedAt.size() <= 50 &&
+        incoming().senderId == trade.sellerId &&
+        incoming().buyerId == trade.buyerId &&
+        incoming().sellerId == trade.sellerId &&
+        incoming().relatedListingId == trade.listingId &&
+        hasValidSellerStockDeduction(
+          trade.listingId,
+          request.auth.uid,
+          trade.quantity
+        );
+    }
+
+    // Validates a seller's purchase-acceptance notification.
+    // Requires a real pending-to-accepted transition in the same transaction.
+    function isValidPurchaseAcceptedNotification(tradeId) {
+      let tradePath = /databases/$(database)/documents/trades/$(tradeId);
+      let previousTrade = get(tradePath).data;
+      let trade = getAfter(tradePath).data;
+
+      return previousTrade.sellerId == request.auth.uid &&
+        previousTrade.status in ['Pending Seller Response', 'Pending'] &&
+        trade.sellerId == request.auth.uid &&
+        trade.buyerId == incoming().recipientId &&
+        trade.status == 'Chat / Payment Arrangement' &&
+        incoming().buyerId == trade.buyerId &&
+        incoming().sellerId == trade.sellerId &&
+        incoming().relatedListingId == trade.listingId;
+    }
+
 
     function getRental(rentalId) {
       return get(/databases/$(database)/documents/rentals/$(rentalId)).data;
@@ -72,14 +175,6 @@ service cloud.firestore {
 
     function rentalExists(rentalId) {
       return exists(/databases/$(database)/documents/rentals/$(rentalId));
-    }
-
-    function getTrade(tradeId) {
-      return get(/databases/$(database)/documents/trades/$(tradeId)).data;
-    }
-
-    function tradeExists(tradeId) {
-      return exists(/databases/$(database)/documents/trades/$(tradeId));
     }
 
     // ===============================================================
@@ -170,7 +265,7 @@ service cloud.firestore {
         incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
         incoming().description is string && incoming().description.size() <= 2000 &&
         incoming().condition in ['Brand New', 'Like New', 'Good', 'Fair'] &&
-        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed', 'Deleted', 'Delisted'] &&
+        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed'] &&
         (!('originalQuantity' in incoming()) || (incoming().originalQuantity is int && incoming().originalQuantity >= 1)) &&
         (!('remainingQuantity' in incoming()) || (
           incoming().remainingQuantity is int && 
@@ -200,7 +295,7 @@ service cloud.firestore {
         ]) &&
         incoming().price is number && incoming().price >= 0 &&
         incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 150 &&
-        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed', 'Deleted', 'Delisted'] &&
+        incoming().status in ['Active', 'active', 'Reserved', 'Sold', 'Removed', 'Completed'] &&
         (!('originalQuantity' in incoming()) || (incoming().originalQuantity is int && incoming().originalQuantity >= 1)) &&
         (!('remainingQuantity' in incoming()) || (
           incoming().remainingQuantity is int && 
@@ -293,13 +388,10 @@ service cloud.firestore {
           'id', 'listingId', 'listingTitle', 'listingPrice', 'listingImage',
           'sellerId', 'sellerName', 'buyerId', 'buyerName', 'buyerContact',
           'offeredPrice', 'pickupLocation', 'message', 'status', 'createdAt',
-          'quantity', 'totalPrice'
+          'isSentByCurrentUser', 'quantity', 'totalPrice'
         ]) &&
         incoming().buyerId == request.auth.uid &&
         incoming().sellerId != request.auth.uid &&
-        (!('id' in incoming()) || incoming().id == tradeId) &&
-        (!('listingImage' in incoming()) || (incoming().listingImage is string && incoming().listingImage.size() <= 500000)) &&
-        (!('message' in incoming()) || (incoming().message is string && incoming().message.size() <= 1000)) &&
         listingExists(incoming().listingId) &&
         getListing(incoming().listingId).sellerId == incoming().sellerId &&
         getListing(incoming().listingId).sellerId != request.auth.uid &&
@@ -314,106 +406,95 @@ service cloud.firestore {
         incoming().status in ['Pending Seller Response', 'Pending'] &&
         (incoming().createdAt == request.time || (incoming().createdAt is string && incoming().createdAt.size() <= 50));
 
+      
       // Strictly separated Buyer and Seller update permissions
-      allow update: if isVerifiedUtmUser() && 
-        // Immutable transaction anchor fields for both parties
-        incoming().buyerId == existing().buyerId &&
-        incoming().sellerId == existing().sellerId &&
-        incoming().listingId == existing().listingId &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().offeredPrice == existing().offeredPrice &&
-        incoming().quantity == existing().quantity &&
-        incoming().totalPrice == existing().totalPrice &&
-        (!('id' in incoming()) || incoming().id == existing().id || incoming().id == tradeId) &&
-        // Terminal state lock: Completed, Rejected, or Cancelled trades cannot change status
-        (!(existing().status in ['Completed', 'Rejected', 'Cancelled']) || incoming().status == existing().status) &&
+      allow update: if isVerifiedUtmUser() &&
+        
+        // Terminal state lock
+        (!(existing().status in ['Completed', 'Rejected', 'Cancelled']) ||
+          incoming().status == existing().status) &&
         (
           // BUYER UPDATE PERMISSIONS
           (
             existing().buyerId == request.auth.uid &&
             (
-              // Action 1: Submit payment proof (from active/pending/under-review states ONLY, NEVER from Approved or terminal states)
+              // Action 1: Declare payment made (no screenshot or proof upload)
               (incoming().status == 'Payment Under Review' &&
-               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review', 'Payment Proof Rejected'] &&
+               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement'] &&
                incoming().diff(existing()).affectedKeys().hasOnly([
-                 'status', 'paymentProofUrl', 'paymentProofUploadedAt', 'paymentMethod', 'rejectionReason'
+                 'status', 'paymentDeclaredAt', 'paymentMethod'
                ]) &&
-               incoming().paymentProofUrl is string && incoming().paymentProofUrl.size() > 0 && incoming().paymentProofUrl.size() <= 500000 &&
-               incoming().paymentProofUploadedAt is string && incoming().paymentProofUploadedAt.size() <= 50 &&
-               incoming().paymentMethod is string && incoming().paymentMethod.size() <= 100 &&
-               (!('rejectionReason' in incoming()) || incoming().rejectionReason == null || (incoming().rejectionReason is string && incoming().rejectionReason.size() <= 500)) &&
-               incoming().get('approvedAt', null) == existing().get('approvedAt', null) &&
-               incoming().get('completedAt', null) == existing().get('completedAt', null) &&
-               incoming().get('hasSellerReviewed', false) == existing().get('hasSellerReviewed', false) &&
-               incoming().get('hasBuyerReviewed', false) == existing().get('hasBuyerReviewed', false)) ||
+               incoming().paymentDeclaredAt is string &&
+               incoming().paymentDeclaredAt.size() <= 50 &&
+               incoming().paymentMethod is string &&
+               incoming().paymentMethod.size() > 0 &&
+               incoming().paymentMethod.size() <= 100) ||
 
-              // Action 2: Cancel purchase request (only from pending/review states, never from approved/completed/rejected)
+              // Action 2: Cancel purchase request
               (incoming().status == 'Cancelled' &&
                existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review', 'Payment Proof Rejected'] &&
-               incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
-               incoming().get('paymentProofUrl', null) == existing().get('paymentProofUrl', null) &&
-               incoming().get('paymentProofUploadedAt', null) == existing().get('paymentProofUploadedAt', null) &&
-               incoming().get('paymentMethod', null) == existing().get('paymentMethod', null)) ||
-
-              // Action 3: Buyer Review (only when Completed, one-way transition: false -> true only)
+               incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+              // Action 3: Buyer review after completion
               (existing().status == 'Completed' &&
                incoming().status == 'Completed' &&
                incoming().diff(existing()).affectedKeys().hasOnly(['hasBuyerReviewed']) &&
                existing().get('hasBuyerReviewed', false) == false &&
                incoming().hasBuyerReviewed == true &&
+               incoming().get('paymentDeclaredAt', null) == existing().get('paymentDeclaredAt', null) &&
+               incoming().get('paymentMethod', null) == existing().get('paymentMethod', null) &&
                incoming().get('paymentProofUrl', null) == existing().get('paymentProofUrl', null) &&
-               incoming().get('paymentProofUploadedAt', null) == existing().get('paymentProofUploadedAt', null) &&
-               incoming().get('paymentMethod', null) == existing().get('paymentMethod', null))
+               incoming().get('paymentProofUploadedAt', null) == existing().get('paymentProofUploadedAt', null))
             )
           ) ||
+
           // SELLER UPDATE PERMISSIONS
           (
             existing().sellerId == request.auth.uid &&
-            // A seller must NOT be able to modify buyer payment proof
-            incoming().get('paymentProofUrl', null) == existing().get('paymentProofUrl', null) &&
-            incoming().get('paymentProofUploadedAt', null) == existing().get('paymentProofUploadedAt', null) &&
-            incoming().get('paymentMethod', null) == existing().get('paymentMethod', null) &&
-            incoming().get('hasBuyerReviewed', false) == existing().get('hasBuyerReviewed', false) &&
-            (
-              // Action 1: Approve transaction (from pending or review states, atomically decrementing listing stock)
+          (   
+              // Action 1: Accept a pending purchase offer.
+              // Does not confirm payment or deduct stock.
+              (incoming().status == 'Chat / Payment Arrangement' &&
+               existing().status in ['Pending Seller Response', 'Pending'] &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+
+              // Action 1: Confirm payment received.
+              // Only from Payment Under Review; atomically deduct listing stock.
               (incoming().status == 'Approved' &&
-               existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'] &&
+               existing().status == 'Payment Under Review' &&
                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'approvedAt']) &&
-               incoming().approvedAt is string && incoming().approvedAt.size() <= 50 &&
+               incoming().approvedAt is string &&
+               incoming().approvedAt.size() <= 50 &&
                incoming().get('completedAt', null) == existing().get('completedAt', null) &&
-               listingExists(existing().listingId) &&
-               getListing(existing().listingId).sellerId == request.auth.uid &&
-               getListing(existing().listingId).status in ['Active', 'active'] &&
-               getListing(existing().listingId).remainingQuantity is int &&
-               getListing(existing().listingId).remainingQuantity >= existing().quantity &&
-               getAfter(/databases/$(database)/documents/listings/$(existing().listingId)).data.remainingQuantity == getListing(existing().listingId).remainingQuantity - existing().quantity &&
-               (
-                 (getListing(existing().listingId).remainingQuantity - existing().quantity == 0 &&
-                  getAfter(/databases/$(database)/documents/listings/$(existing().listingId)).data.status == 'Sold') ||
-                 (getListing(existing().listingId).remainingQuantity - existing().quantity > 0 &&
-                  getAfter(/databases/$(database)/documents/listings/$(existing().listingId)).data.status in ['Active', 'active'])
+                              hasValidSellerStockDeduction(
+                 existing().listingId,
+                 request.auth.uid,
+                 existing().quantity
                )) ||
 
-              // Action 2: Reject transaction (from pending or review states)
+              // Action 2: Reject a purchase request
               (incoming().status == 'Rejected' &&
                existing().status in ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'] &&
                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'rejectionReason']) &&
-               (!('rejectionReason' in incoming()) || incoming().rejectionReason == null || (incoming().rejectionReason is string && incoming().rejectionReason.size() <= 500))) ||
+               (!('rejectionReason' in incoming()) ||
+                 (incoming().rejectionReason is string && incoming().rejectionReason.size() <= 500))) ||
 
-              // Action 3: Reject payment proof (only from review state)
+              // Action 3: Legacy payment-proof rejection
               (incoming().status == 'Payment Proof Rejected' &&
                existing().status == 'Payment Under Review' &&
                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'rejectionReason']) &&
-               incoming().rejectionReason is string && incoming().rejectionReason.size() > 0 && incoming().rejectionReason.size() <= 500) ||
+               incoming().rejectionReason is string &&
+               incoming().rejectionReason.size() > 0 &&
+               incoming().rejectionReason.size() <= 500) ||
 
-              // Action 4: Complete transaction (strictly from Approved state)
+              // Action 4: Complete transaction after campus handover
               (incoming().status == 'Completed' &&
                existing().status == 'Approved' &&
                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedAt']) &&
-               incoming().completedAt is string && incoming().completedAt.size() <= 50 &&
+               incoming().completedAt is string &&
+               incoming().completedAt.size() <= 50 &&
                incoming().approvedAt == existing().approvedAt) ||
 
-              // Action 5: Seller Review (only when Completed, one-way transition: false -> true only)
+              // Action 5: Seller review after completion
               (existing().status == 'Completed' &&
                incoming().status == 'Completed' &&
                incoming().diff(existing()).affectedKeys().hasOnly(['hasSellerReviewed']) &&
@@ -422,6 +503,7 @@ service cloud.firestore {
             )
           )
         );
+
 
       // Financial transactions cannot be deleted to maintain an audit trail
       allow delete: if false;
@@ -699,7 +781,7 @@ service cloud.firestore {
       allow get: if isVerifiedUtmUser() && resource.data.recipientId == request.auth.uid;
       allow list: if isVerifiedUtmUser() && resource.data.recipientId == request.auth.uid;
 
-      // Only verified participants of a valid trade or rental (or restricted self-notifications) can create a notification
+      // Only verified participants of a valid trade or rental (or self-notification) can create a notification
       allow create: if isVerifiedUtmUser() &&
         isValidId(notificationId) &&
         incoming().keys().hasAll([
@@ -714,8 +796,10 @@ service cloud.firestore {
         isValidId(incoming().senderId) &&
         incoming().senderId == request.auth.uid &&
         (!('id' in incoming()) || incoming().id == notificationId) &&
-        incoming().type in [
+                incoming().type in [
           'purchase_request', 'purchase_request_sent', 'trade', 'trade_request',
+          'purchase_accepted', 'payment_declared', 'payment_received',
+          'payment_proof_uploaded', 'payment_proof_rejected',
           'borrow', 'borrow_reminder', 'wanted', 'budget', 'budget_warning',
           'system', 'price_alert', 'pet_milestone', 'rental', 'rental_request',
           'rental_approved', 'rental_rejected', 'rental_return_reminder',
@@ -732,36 +816,72 @@ service cloud.firestore {
         (!('relatedRentalId' in incoming()) || isValidId(incoming().relatedRentalId)) &&
         (!('linkTab' in incoming()) || (incoming().linkTab is string && incoming().linkTab.size() <= 50)) &&
         (!('subTab' in incoming()) || (incoming().subTab is string && incoming().subTab.size() <= 50)) &&
-        incoming().createdAt == request.time &&
+        (incoming().createdAt == request.time || (incoming().createdAt is string && incoming().createdAt.size() <= 50)) &&
+        
         (
           // Branch 1: Trade counterparty notification (buyer <-> seller, never self)
           (
             incoming().recipientId != request.auth.uid &&
             incoming().type in ['purchase_request', 'trade', 'trade_request'] &&
             'relatedRequestId' in incoming() &&
-            tradeExists(incoming().relatedRequestId) &&
+            exists(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)) &&
             (
-              (getTrade(incoming().relatedRequestId).buyerId == request.auth.uid &&
-               getTrade(incoming().relatedRequestId).sellerId == incoming().recipientId) ||
-              (getTrade(incoming().relatedRequestId).sellerId == request.auth.uid &&
-               getTrade(incoming().relatedRequestId).buyerId == incoming().recipientId)
+              (get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId == request.auth.uid &&
+               get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId == incoming().recipientId) ||
+              (get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId == request.auth.uid &&
+               get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId == incoming().recipientId)
             ) &&
-            (!('buyerId' in incoming()) || incoming().buyerId == getTrade(incoming().relatedRequestId).buyerId) &&
-            (!('sellerId' in incoming()) || incoming().sellerId == getTrade(incoming().relatedRequestId).sellerId) &&
-            (!('relatedListingId' in incoming()) || incoming().relatedListingId == getTrade(incoming().relatedRequestId).listingId)
-          ) ||
-          // Branch 2: Buyer confirmation notification (must reference buyer's own real trade)
+            (!('buyerId' in incoming()) ||
+             incoming().buyerId == get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId) &&
+            (!('sellerId' in incoming()) ||
+             incoming().sellerId == get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId) &&
+            (!('relatedListingId' in incoming()) ||
+             incoming().relatedListingId == get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.listingId)
+           ) ||
+	     // Branch 2: Seller accepts an offer and notifies the actual buyer.
           (
-            incoming().recipientId == request.auth.uid &&
-            incoming().type == 'purchase_request_sent' &&
+            incoming().recipientId != request.auth.uid &&
+            incoming().type == 'purchase_accepted' &&
             'relatedRequestId' in incoming() &&
-            tradeExists(incoming().relatedRequestId) &&
-            getTrade(incoming().relatedRequestId).buyerId == request.auth.uid &&
-            (!('buyerId' in incoming()) || incoming().buyerId == getTrade(incoming().relatedRequestId).buyerId) &&
-            (!('sellerId' in incoming()) || incoming().sellerId == getTrade(incoming().relatedRequestId).sellerId) &&
-            (!('relatedListingId' in incoming()) || incoming().relatedListingId == getTrade(incoming().relatedRequestId).listingId)
+            exists(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)) &&
+            isValidPurchaseAcceptedNotification(incoming().relatedRequestId)
           ) ||
-          // Branch 3: Rental counterparty notification (renter <-> owner, never self)
+
+                      // Branch 2: Buyer declares payment made to the actual seller
+          (
+            incoming().recipientId != request.auth.uid &&
+            incoming().type == 'payment_declared' &&
+            'relatedRequestId' in incoming() &&
+            exists(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)) &&
+            isValidPaymentDeclaredNotification(incoming().relatedRequestId)
+          ) ||
+
+          // Branch 3: Seller confirms payment received to the actual buyer
+          (
+            incoming().recipientId != request.auth.uid &&
+            incoming().type == 'payment_received' &&
+            'relatedRequestId' in incoming() &&
+            exists(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)) &&
+            isValidPaymentReceivedNotification(incoming().relatedRequestId)
+          ) ||
+
+          // Branch 4: Legacy seller payment-proof rejection notification
+          (
+            incoming().recipientId != request.auth.uid &&
+            incoming().type == 'payment_proof_rejected' &&
+            'relatedRequestId' in incoming() &&
+            exists(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)) &&
+            get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId == request.auth.uid &&
+            get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId == incoming().recipientId &&
+            get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.status == 'Payment Proof Rejected' &&
+            get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.rejectionReason is string &&
+            get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.rejectionReason.size() > 0 &&
+            get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.rejectionReason.size() <= 500 &&
+            incoming().buyerId == get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.buyerId &&
+            incoming().sellerId == get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.sellerId &&
+            incoming().relatedListingId == get(/databases/$(database)/documents/trades/$(incoming().relatedRequestId)).data.listingId
+          ) ||
+	    // Branch 3: Buyer's own purchase confirmation
           (
             incoming().recipientId != request.auth.uid &&
             incoming().type in [
@@ -778,7 +898,8 @@ service cloud.firestore {
                get(/databases/$(database)/documents/rentalRequests/$(incoming().relatedRentalId)).data.renterId == incoming().recipientId)
             )
           ) ||
-          // Branch 4: Personal/system self-notifications only (no forged trade/rental metadata)
+
+          // Branch 4: Personal/system self-notifications only
           (
             incoming().recipientId == request.auth.uid &&
             incoming().type in ['wanted', 'budget', 'budget_warning', 'system', 'price_alert', 'pet_milestone'] &&
@@ -788,6 +909,7 @@ service cloud.firestore {
             !('sellerId' in incoming())
           )
         );
+
 
       // Recipient can only mark their own notification as read
       allow update: if isVerifiedUtmUser() &&
@@ -804,7 +926,7 @@ service cloud.firestore {
     // ===============================================================
     // 8. TRUSTED STAFF ADMINISTRATIVE WHITELIST (/staff_whitelist/{userId})
     // ===============================================================
-    match /staff_whitelist/{userId} {
+        match /staff_whitelist/{userId} {
       // Whitelist cannot be read or written from client SDKs; managed via Admin SDK/Console only
       allow read, write: if false;
     }

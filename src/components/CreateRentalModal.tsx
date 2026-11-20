@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { RentalItem, RentalCategory, RENTAL_CATEGORIES, Condition } from '../types';
 import { POPULAR_CAMPUS_LOCATIONS } from '../data/mockData';
+import { imageStorageService } from '../services/imageStorageService';
 
 interface CreateRentalModalProps {
   isOpen: boolean;
@@ -59,22 +60,61 @@ export const CreateRentalModal: React.FC<CreateRentalModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      setErrors((prev) => ({ ...prev, image: 'Please choose an image under 2MB.' }));
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
+    if (!validTypes.includes(file.type.toLowerCase())) {
+      setErrors((prev) => ({
+        ...prev,
+        image: 'Please select a JPG, PNG, or WEBP image.',
+      }));
+      e.target.value = '';
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setUploadedImage(reader.result as string);
+    if (file.size > 5 * 1024 * 1024) {
+      setErrors((prev) => ({
+        ...prev,
+        image: 'Please choose an image under 5MB.',
+      }));
+      e.target.value = '';
+      return;
+    }
+
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.image;
+      return next;
+    });
+
+    try {
+      const optimizedDataUrl = await imageStorageService.processImageFile(file, 600);
+
+      // Limit the final Base64 data URL to 250 KB.
+      const estimatedSize = Math.ceil((optimizedDataUrl.length * 3) / 4);
+
+      if (estimatedSize > 250 * 1024) {
+        throw new Error('IMAGE_TOO_LARGE');
+      }
+
+      setUploadedImage(optimizedDataUrl);
       setCustomImageUrl('');
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Rental image processing error:', err);
+
+      setErrors((prev) => ({
+        ...prev,
+        image: 'Unable to compress this image below 250KB. Please try another photo.',
+      }));
+    } finally {
+      e.target.value = '';
+    }
   };
+
 
   const getEffectiveImageUrl = () => {
     if (uploadedImage) return uploadedImage;
@@ -351,7 +391,7 @@ export const CreateRentalModal: React.FC<CreateRentalModalProps> = ({
                 <span>Upload</span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp"
                   onChange={handleFileUpload}
                   className="hidden"
                 />

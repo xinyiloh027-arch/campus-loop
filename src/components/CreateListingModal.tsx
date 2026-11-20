@@ -132,21 +132,35 @@ export const CreateListingModal: React.FC<CreateListingModalProps> = ({
     setIsProcessingImage(true);
     setImageFileName(file.name);
 
+    
     try {
-      // Process & compress photo to optimal WebP/JPEG dataUrl (< 80KB)
-      // This prevents localStorage quota overflow and keeps UI rendering lightning fast
+      // Compress the uploaded image to a maximum dimension of 800px.
       const optimizedDataUrl = await imageStorageService.processImageFile(file, 800);
+
+      // Check the estimated decoded image size before saving to Firestore.
+      const estimatedSize = Math.ceil((optimizedDataUrl.length * 3) / 4);
+
+      if (estimatedSize > 250 * 1024) {
+        throw new Error('IMAGE_TOO_LARGE');
+      }
+
       setUploadedImage(optimizedDataUrl);
       setCustomImageUrl('');
     } catch (err: any) {
       console.error('Image compression error:', err);
-      setErrors((prev) => ({ ...prev, image: 'Failed to process image. Please try another photo.' }));
+
+      setErrors((prev) => ({
+        ...prev,
+        image: err?.message === 'IMAGE_TOO_LARGE'
+          ? 'Compressed image is still too large. Please try another photo.'
+          : 'Failed to process image. Please try another photo.',
+      }));
     } finally {
       setIsProcessingImage(false);
-      // Reset the input value so the same file can be re-selected if desired
       e.target.value = '';
     }
   };
+
 
   const handleRemoveImage = () => {
     setUploadedImage(null);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   User, 
   Mail, 
@@ -78,10 +78,7 @@ interface MeViewProps {
   onConfirmReturn: (requestId: string) => void;
   onRemoveFavorite: (listingId: string) => void;
   onUpdateProfile: (updated: Partial<UserProfile>) => void;
-  onResetData: () => void;
   initialSubTab?: string;
-  focusedTradeRequestId?: string | null;
-  onClearFocusedTradeRequest?: () => void;
   onSignOut?: () => void;
   onOpenAuthModal?: () => void;
   onNavigateToPetWorld?: () => void;
@@ -89,8 +86,9 @@ interface MeViewProps {
   // Buyer-Seller Purchase Workflow Callbacks
   onDeleteListing?: (id: string) => void;
   onEditListing?: (listing: Listing) => void;
-  onSubmitPaymentProof?: (requestId: string, proofUrl: string, method: string) => Promise<void>;
+  onDeclarePaymentMade?: (requestId: string, method: string) => Promise<void>;
   onApproveTransaction?: (requestId: string) => Promise<void>;
+onAcceptPurchaseOffer?: (requestId: string) => Promise<void>;
   onRejectPaymentProof?: (requestId: string, reason: string) => Promise<void>;
   onCompleteTransaction?: (requestId: string) => Promise<void>;
   onStartChat?: (sellerName: string, listing?: Listing) => void;
@@ -124,17 +122,15 @@ export const MeView: React.FC<MeViewProps> = ({
   onConfirmReturn,
   onRemoveFavorite,
   onUpdateProfile,
-  onResetData,
   initialSubTab,
-  focusedTradeRequestId,
-  onClearFocusedTradeRequest,
   onSignOut,
   onOpenAuthModal,
   onNavigateToPetWorld,
   onDeleteListing,
   onEditListing,
-  onSubmitPaymentProof,
+  onDeclarePaymentMade,
   onApproveTransaction,
+  onAcceptPurchaseOffer,
   onRejectPaymentProof,
   onCompleteTransaction,
   onStartChat,
@@ -147,7 +143,6 @@ export const MeView: React.FC<MeViewProps> = ({
   const [contactHandle, setContactHandle] = useState(currentUser?.contactHandle || profile.contactHandle || '');
   const [faculty, setFaculty] = useState(currentUser?.faculty || profile.faculty || 'Faculty of Computing (FC)');
   const [savedSettingsMsg, setSavedSettingsMsg] = useState(false);
-  const [resetConfirmMsg, setResetConfirmMsg] = useState(false);
 
   // Buyer-Seller Purchase Workflow Modal States
   const [selectedProofRequest, setSelectedProofRequest] = useState<TradeRequest | null>(null);
@@ -160,32 +155,6 @@ export const MeView: React.FC<MeViewProps> = ({
   const effectiveEmail = currentUser?.email || profile.email;
   const effectiveName = currentUser?.name || profile.name;
   const effectiveId = currentUser?.id;
-
-  useEffect(() => {
-    if (initialSubTab) {
-      setActiveMainTab(initialSubTab as MainTab);
-    }
-  }, [initialSubTab]);
-
-  useEffect(() => {
-    if (!focusedTradeRequestId || !tradeRequests.length) return;
-    const target = tradeRequests.find((r) => r.id === focusedTradeRequestId);
-    if (!target) return;
-
-    const isSellerForReq = Boolean(effectiveId && target.sellerId === effectiveId);
-    const isBuyerForReq = Boolean(effectiveId && target.buyerId === effectiveId);
-
-    if (isSellerForReq) {
-      setActiveMainTab('sales');
-      if (['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Under Review'].includes(target.status)) {
-        setSelectedSellerReviewRequest(target);
-      }
-    } else if (isBuyerForReq || target.isSentByCurrentUser) {
-      setActiveMainTab('purchases');
-    }
-
-    onClearFocusedTradeRequest?.();
-  }, [focusedTradeRequestId, tradeRequests, effectiveId, onClearFocusedTradeRequest]);
 
   // Real User Listings: strictly matched by sellerId, user email, or seller display name
   const myListings = isUserSignedIn
@@ -257,14 +226,6 @@ export const MeView: React.FC<MeViewProps> = ({
     }
     setSavedSettingsMsg(true);
     setTimeout(() => setSavedSettingsMsg(false), 2500);
-  };
-
-  const handleResetClick = () => {
-    if (window.confirm('Reset all prototype listings, rental items, requests, cart, and chats back to fresh sample data?')) {
-      onResetData();
-      setResetConfirmMsg(true);
-      setTimeout(() => setResetConfirmMsg(false), 2500);
-    }
   };
 
   // Helper for Trade status badge (all 6 purchase workflow statuses)
@@ -1589,9 +1550,8 @@ export const MeView: React.FC<MeViewProps> = ({
 
                       {/* Purchase request count & status */}
                       {(() => {
-                        const itemTrades = mySales.filter((r) => r.listingId === item.id);
-                        const pendingReq = itemTrades.find((r) => r.status === 'Payment Under Review' || r.status === 'Pending Seller Response' || r.status === 'Pending');
-                        const isListingSeller = !effectiveId || !item.sellerId || item.sellerId === effectiveId;
+                        const itemTrades = tradeRequests.filter((r) => r.listingId === item.id);
+                        const pendingReq = itemTrades.find((r) => r.status === 'Payment Under Review' || r.status === 'Pending Seller Response');
 
                         return (
                           <div className="space-y-2">
@@ -1617,7 +1577,7 @@ export const MeView: React.FC<MeViewProps> = ({
                               </button>
 
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                {pendingReq && isListingSeller && (
+                                {pendingReq && (
                                   <button
                                     type="button"
                                     onClick={() => setSelectedSellerReviewRequest(pendingReq)}
@@ -1733,7 +1693,7 @@ export const MeView: React.FC<MeViewProps> = ({
               <span>My Sent Purchase & Handover Requests ({myPurchases.length})</span>
             </h2>
             <p className="text-xs text-slate-500">
-              Track your purchase requests across 6 workflow stages and upload payment screenshots.
+              Track your purchase requests, payment declarations, and campus handovers.
             </p>
           </div>
 
@@ -1747,7 +1707,7 @@ export const MeView: React.FC<MeViewProps> = ({
             <div className="space-y-3.5">
               {myPurchases.map((req) => {
                 const totalAmount = req.totalPrice || (req.offeredPrice * (req.quantity || 1));
-                const canUploadProof = ['Pending Seller Response', 'Pending', 'Chat / Payment Arrangement', 'Payment Proof Rejected'].includes(req.status);
+                const canDeclarePayment = req.status === 'Chat / Payment Arrangement';
                 const isUnderReview = req.status === 'Payment Under Review';
                 const isApproved = req.status === 'Approved' || req.status === 'Accepted';
 
@@ -1821,7 +1781,7 @@ export const MeView: React.FC<MeViewProps> = ({
                       <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-start gap-2">
                         <Receipt className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
                         <div>
-                          <strong>Payment Proof Under Review:</strong> Your payment screenshot was sent to the seller. Inventory will be officially deducted once the seller verifies and approves.
+                          <strong>Payment Declaration Submitted:</strong> You declared that you made payment using {req.paymentMethod || 'your selected method'}. The seller must independently check their bank or e-wallet account and confirm receipt. Stock will only be deducted after seller confirmation.
                         </div>
                       </div>
                     )}
@@ -1852,36 +1812,28 @@ export const MeView: React.FC<MeViewProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {/* Upload / Re-upload Payment Proof */}
-                        {canUploadProof && (
+                        {/* Declare Payment */}
+{canDeclarePayment && (
+  <button
+    type="button"
+    onClick={() => setSelectedProofRequest(req)}
+    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+  >
+    <Receipt className="w-3.5 h-3.5" />
+    <span>I've Made Payment</span>
+  </button>
+)}
+
+                        {/* Mark Completed when approved */}
+                        {isApproved && onCompleteTransaction && (
                           <button
                             type="button"
-                            onClick={() => setSelectedProofRequest(req)}
-                            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            onClick={() => onCompleteTransaction(req.id)}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
                           >
-                            <Receipt className="w-3.5 h-3.5" />
-                            <span>{req.status === 'Payment Proof Rejected' ? 'Re-upload Payment Proof' : 'Upload Payment Proof'}</span>
+                            <Check className="w-4 h-4" />
+                            <span>Mark Received & Completed</span>
                           </button>
-                        )}
-
-                        {/* View Uploaded Proof while under review */}
-                        {isUnderReview && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedProofRequest(req)}
-                            className="px-3.5 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>View / Update Proof</span>
-                          </button>
-                        )}
-
-                        {/* Seller finalizes handover completion per security rules */}
-                        {isApproved && (
-                          <span className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-[11px] inline-flex items-center gap-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Meet seller to collect; seller confirms handover</span>
-                          </span>
                         )}
                       </div>
                     </div>
@@ -1979,7 +1931,6 @@ export const MeView: React.FC<MeViewProps> = ({
                   const totalAmount = req.totalPrice || (req.offeredPrice * (req.quantity || 1));
                   const isUnderReview = req.status === 'Payment Under Review';
                   const isApproved = req.status === 'Approved' || req.status === 'Accepted';
-                  const isSellerOwner = !effectiveId || !req.sellerId || req.sellerId === effectiveId;
 
                   return (
                     <div
@@ -2028,30 +1979,29 @@ export const MeView: React.FC<MeViewProps> = ({
                         )}
                       </div>
 
-                      {/* Payment Under Review Action Box */}
-                      {isUnderReview && (
-                        <div className="p-3 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <Receipt className="w-5 h-5 text-indigo-600 shrink-0" />
-                            <div>
-                              <strong className="block">Buyer Uploaded Payment Proof!</strong>
-                              <span className="text-[11px] text-slate-600">
-                                Verify receipt and approve transaction to automatically deduct {req.quantity || 1} unit(s) from inventory.
-                              </span>
-                            </div>
-                          </div>
+                      {/* Payment Declaration — Seller Confirmation */}
+{isUnderReview && (
+  <div className="p-3 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="flex items-center gap-2">
+      <Receipt className="w-5 h-5 text-indigo-600 shrink-0" />
+      <div>
+        <strong className="block">Buyer Declared Payment Made</strong>
+        <span className="text-[11px] text-slate-600">
+          Payment method: {req.paymentMethod || 'Not specified'}. Check your own bank or e-wallet account before confirming receipt. Stock deduction happens only after your confirmation.
+        </span>
+      </div>
+    </div>
 
-                          <button
-                            type="button"
-                            onClick={() => setSelectedSellerReviewRequest(req)}
-                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs shadow-md shadow-indigo-200 flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
-                          >
-                            <ShieldCheck className="w-4 h-4" />
-                            <span>Review &amp; Approve Proof</span>
-                          </button>
-                        </div>
-                      )}
-
+    <button
+      type="button"
+      onClick={() => setSelectedSellerReviewRequest(req)}
+      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs shadow-md shadow-indigo-200 flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+    >
+      <ShieldCheck className="w-4 h-4" />
+      <span>Confirm Payment Received</span>
+    </button>
+  </div>
+)}
                       {/* Footer Actions */}
                       <div className="pt-2 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2 text-xs">
                         <div className="flex items-center gap-2">
@@ -2069,7 +2019,7 @@ export const MeView: React.FC<MeViewProps> = ({
 
                         <div className="flex items-center gap-2">
                           {/* Pending Seller Response */}
-                          {(req.status === 'Pending Seller Response' || req.status === 'Pending') && isSellerOwner && (
+                          {(req.status === 'Pending Seller Response' || req.status === 'Pending') && (
                             <>
                               <button
                                 type="button"
@@ -2089,7 +2039,7 @@ export const MeView: React.FC<MeViewProps> = ({
                           )}
 
                           {/* Approved: Mark Handover Completed */}
-                          {isApproved && onCompleteTransaction && isSellerOwner && (
+                          {isApproved && onCompleteTransaction && (
                             <button
                               type="button"
                               onClick={() => onCompleteTransaction(req.id)}
@@ -2110,22 +2060,21 @@ export const MeView: React.FC<MeViewProps> = ({
       )}
 
       {/* ============================================================== */}
-      {/* BUYER PAYMENT PROOF MODAL */}
       {/* ============================================================== */}
-      {selectedProofRequest && (
-        <PaymentProofModal
-          isOpen={Boolean(selectedProofRequest)}
-          onClose={() => setSelectedProofRequest(null)}
-          request={selectedProofRequest}
-          onSubmitProof={async (requestId, proofUrl, method) => {
-            if (onSubmitPaymentProof) {
-              await onSubmitPaymentProof(requestId, proofUrl, method);
-            }
-          }}
-        />
-      )}
-
-      {/* ============================================================== */}
+{/* BUYER PAYMENT DECLARATION MODAL */}
+{/* ============================================================== */}
+{selectedProofRequest && (
+  <PaymentProofModal
+    isOpen={Boolean(selectedProofRequest)}
+    onClose={() => setSelectedProofRequest(null)}
+    request={selectedProofRequest}
+    onDeclarePayment={async (requestId, method) => {
+      if (onDeclarePaymentMade) {
+        await onDeclarePaymentMade(requestId, method);
+      }
+    }}
+  />
+)}
       {/* SELLER APPROVAL / REJECTION MODAL */}
       {/* ============================================================== */}
       {selectedSellerReviewRequest && (
@@ -2134,15 +2083,14 @@ export const MeView: React.FC<MeViewProps> = ({
           onClose={() => setSelectedSellerReviewRequest(null)}
           request={selectedSellerReviewRequest}
           listing={listings.find(l => l.id === selectedSellerReviewRequest.listingId) || null}
-          currentUserId={effectiveId}
           onApprove={async (requestId) => {
             if (onApproveTransaction) {
               await onApproveTransaction(requestId);
             }
           }}
-          onReject={async (requestId, reason) => {
-            if (onRejectPaymentProof) {
-              await onRejectPaymentProof(requestId, reason);
+          onAcceptOffer={async (requestId) => {
+            if (onAcceptPurchaseOffer) {
+              await onAcceptPurchaseOffer(requestId);
             }
           }}
         />
@@ -2337,23 +2285,6 @@ export const MeView: React.FC<MeViewProps> = ({
         </div>
       )}
 
-      {/* Bottom Action: Reset Prototype Data */}
-      <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-        <span className="text-slate-400">CampusLoop Prototype v4.0 · Student Peer Marketplace</span>
-        <button
-          type="button"
-          onClick={handleResetClick}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Reset Sample Data</span>
-        </button>
-      </div>
-      {resetConfirmMsg && (
-        <div className="p-3 bg-emerald-50 text-emerald-800 rounded-xl text-xs text-center border border-emerald-200">
-          Sample data reset successfully!
-        </div>
-      )}
-    </div>
+          </div>
   );
 };

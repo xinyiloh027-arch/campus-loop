@@ -195,13 +195,12 @@ export interface TradeRequest {
   hasBuyerReviewed?: boolean;
   hasSellerReviewed?: boolean;
 
-  // Purchase Workflow & Payment Proof
+    // Purchase Workflow & Manual Payment Confirmation
   quantity?: number;
   totalPrice?: number;
-  paymentProofUrl?: string;
-  paymentProofUploadedAt?: string;
+  paymentDeclaredAt?: string;
   paymentMethod?: string;
-  rejectionReason?: string;
+  rejectionReason?: string; // Retained for legacy records
   approvedAt?: string;
   completedAt?: string;
 }

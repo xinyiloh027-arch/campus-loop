@@ -114,10 +114,9 @@ class AuthService {
           this.saveLocalSession(mappedUser, `fb-${fbUser.uid}`);
           this.notifyListeners(mappedUser);
         } else {
-          // If Firebase signed out, clear local session if it was a Firebase session
+          // If Firebase signed out, clear local session if it was a firebase session
           const current = this.getCurrentUser();
-          const token = this.getAuthToken();
-          if (current && ((token && token.startsWith('fb-')) || current.id.startsWith('fb-'))) {
+          if (current && current.id.startsWith('fb-')) {
             this.clearLocalSession();
             this.notifyListeners(null);
           }
@@ -147,6 +146,47 @@ class AuthService {
       localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
       localStorage.setItem(AUTH_TOKEN_KEY, token);
     } catch {}
+  }
+  private async ensureFirestoreUserProfile(user: UTMUser): Promise<void> {
+    const { auth, db } = initFirebase();
+    const fbUser = auth?.currentUser;
+
+    if (!db || !fbUser || !fbUser.emailVerified || fbUser.uid !== user.id) {
+      throw new Error('A verified Firebase user is required to create a profile.');
+    }
+
+    await fbUser.getIdToken(true);
+
+    const profileRef = doc(db, 'users', fbUser.uid);
+    const existingProfile = await getDoc(profileRef);
+
+    // Never overwrite an existing user profile.
+    if (existingProfile.exists()) return;
+
+    const email = (fbUser.email || user.email).trim().toLowerCase();
+
+    if (!this.isUtmEmail(email)) {
+      throw new Error('Only approved UTM email addresses can create profiles.');
+    }
+
+    const profile = {
+      id: fbUser.uid,
+      email,
+      name: user.name || fbUser.displayName || 'UTM Student',
+      role: 'student' as const,
+      accountState: 'Verified UTM Member' as const,
+      emailVerified: true,
+      isSuspended: false,
+      verifiedTransactionsCount: 0,
+      createdAt: user.createdAt || fbUser.metadata.creationTime || new Date().toISOString(),
+      ...(user.studentId ? { studentId: user.studentId } : {}),
+      ...(user.faculty ? { faculty: user.faculty } : {}),
+      ...(user.dorm ? { dorm: user.dorm } : {}),
+      ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
+      ...(user.contactHandle ? { contactHandle: user.contactHandle } : {})
+    };
+
+    await setDoc(profileRef, profile);
   }
 
   private clearLocalSession() {
@@ -284,14 +324,6 @@ class AuthService {
           isSuspended: false,
           createdAt: new Date().toISOString()
         };
-
-        if (db) {
-          // Asynchronously persist to Firestore without blocking response
-          setDoc(doc(db, 'users', userCred.user.uid), newUtmUser).catch((e) => {
-            console.warn('Could not write user to Firestore:', e);
-          });
-        }
-
         this.saveLocalSession(newUtmUser, `fb-${userCred.user.uid}`);
         this.notifyListeners(newUtmUser);
 
@@ -381,12 +413,19 @@ class AuthService {
           await auth.currentUser.getIdToken(true);
         } catch {}
         const user = this.getCurrentUser();
-        if (user) {
-          user.emailVerified = true;
-          user.accountState = 'Verified UTM Member';
-          this.saveLocalSession(user, `fb-${auth.currentUser.uid}`);
-          this.notifyListeners(user);
-        }
+if (user) {
+  user.emailVerified = true;
+  user.accountState = 'Verified UTM Member';
+
+  try {
+    await this.ensureFirestoreUserProfile(user);
+  } catch (profileError) {
+    console.error('Could not create verified Firestore profile:', profileError);
+  }
+
+  this.saveLocalSession(user, `fb-${auth.currentUser.uid}`);
+  this.notifyListeners(user);
+}
         return {
           success: true,
           user: user || undefined,
@@ -518,8 +557,13 @@ class AuthService {
             createdAt: auth.currentUser.metadata.creationTime || new Date().toISOString()
           };
 
-          // Note: emailVerified and accountState in Firestore are protected fields
-          // The client session is updated locally, and Firebase Auth JWT token is refreshed with email_verified: true
+                    // Create the Firestore profile only after Firebase confirms email verification.
+          try {
+            await this.ensureFirestoreUserProfile(verifiedUser);
+          } catch (profileError) {
+            console.error('Could not create verified Firestore profile:', profileError);
+          }
+
           this.saveLocalSession(verifiedUser, `fb-${auth.currentUser.uid}`);
           this.notifyListeners(verifiedUser);
 
@@ -603,6 +647,11 @@ class AuthService {
           isSuspended: false,
           createdAt: fbUser.metadata.creationTime || new Date().toISOString()
         };
+      try {
+        await this.ensureFirestoreUserProfile(safeUser);
+      } catch (profileError) {
+        console.error('Could not create verified Firestore profile during login:', profileError);
+      }
 
         this.saveLocalSession(safeUser, `fb-${fbUser.uid}`);
         this.notifyListeners(safeUser);
